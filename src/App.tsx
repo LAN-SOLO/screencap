@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { api, Filter, Settings, Shot } from './api';
+import { api, Filter, Settings, Shot, UpdateInfo } from './api';
 import { dicts, Lang } from './i18n';
 import { Editor } from './components/Editor';
 import { SettingsModal } from './components/SettingsModal';
+import { Help } from './components/Help';
 import {
   IconCopy,
   IconFolder,
@@ -63,6 +64,8 @@ export default function App() {
   const [editorShot, setEditorShot] = useState<Shot | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [updateAvail, setUpdateAvail] = useState<UpdateInfo | null>(null);
+  const [installing, setInstalling] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
   const shotsRef = useRef<Shot[]>([]);
   shotsRef.current = shots;
@@ -85,6 +88,8 @@ export default function App() {
       setSettings(s);
       setDelay(s.delayDefault);
     });
+    // stiller Update-Check beim Start — installiert wird nur nach Klick
+    api.checkUpdate().then(setUpdateAvail).catch(() => {});
   }, []);
 
   useEffect(refresh, [refresh]);
@@ -309,6 +314,28 @@ export default function App() {
         />
       )}
 
+      {updateAvail && (
+        <div className="upd-banner">
+          <span>
+            {t.updateBanner} <strong>{updateAvail.version}</strong>
+          </span>
+          <button
+            className="primary"
+            disabled={installing}
+            onClick={() => {
+              setInstalling(true);
+              api.installUpdate().catch(() => setInstalling(false));
+            }}
+          >
+            {installing ? t.updateInstalling : t.updateInstall}
+          </button>
+          <button className="ghost" onClick={() => setUpdateAvail(null)}>
+            {t.updateLater}
+          </button>
+        </div>
+      )}
+
+      <Help lang={lang} />
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

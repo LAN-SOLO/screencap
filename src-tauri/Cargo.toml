@@ -1,6 +1,6 @@
 [package]
 name = "screencap"
-version = "0.1.0"
+version = "0.1.1"
 description = "screencap — Screenshot-Tool mit Ablage: Aufnahme, Editor, Bibliothek"
 edition = "2021"
 license = "MIT"

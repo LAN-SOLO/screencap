@@ -3,7 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { api, Settings, UpdateInfo } from '../api';
 import { Dict } from '../i18n';
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '0.1.1';
 
 export function SettingsModal({
   settings,

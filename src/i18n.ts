@@ -80,6 +80,10 @@ const de = {
   save: 'Speichern',
   cancel: 'Abbrechen',
   version: 'Version',
+  updateBanner: 'Update verfügbar:',
+  updateInstall: 'Laden & installieren',
+  updateLater: 'Später',
+  updateInstalling: 'Installiere …',
 };
 
 const en: typeof de = {
@@ -157,6 +161,10 @@ const en: typeof de = {
   save: 'Save',
   cancel: 'Cancel',
   version: 'Version',
+  updateBanner: 'Update available:',
+  updateInstall: 'Download & install',
+  updateLater: 'Later',
+  updateInstalling: 'Installing …',
 };
 
 export type Dict = typeof de;
