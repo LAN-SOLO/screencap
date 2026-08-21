@@ -83,6 +83,12 @@ export const IconGear = (p: P) => (
   </S>
 );
 
+export const IconCursor = (p: P) => (
+  <S {...p}>
+    <path d="M4 4l7.5 16.5 2.2-6.8 6.8-2.2Z" />
+  </S>
+);
+
 export const IconPen = (p: P) => (
   <S {...p}>
     <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />

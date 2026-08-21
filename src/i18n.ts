@@ -32,6 +32,9 @@ const de = {
   saved: 'Gespeichert',
   // editor
   back: 'Bibliothek',
+  toolSelect: 'Auswählen & Verschieben',
+  selectHint:
+    'Objekt anklicken: verschieben, Anfasser ziehen, Farbe/Stärke ändern. Doppelklick auf Text bearbeitet ihn, Entf löscht, Pfeiltasten verschieben (Shift = 10 px).',
   toolPen: 'Stift',
   toolLine: 'Linie',
   toolArrow: 'Pfeil',
@@ -114,6 +117,9 @@ const en: typeof de = {
   edit: 'Edit',
   saved: 'Saved',
   back: 'Library',
+  toolSelect: 'Select & move',
+  selectHint:
+    'Click an object: drag to move, pull handles, change color/width. Double-click text to edit, Del deletes, arrow keys nudge (Shift = 10 px).',
   toolPen: 'Pen',
   toolLine: 'Line',
   toolArrow: 'Arrow',

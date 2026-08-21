@@ -70,6 +70,7 @@ const de: Content = {
       body: [
         'Nach der Aufnahme öffnet sich der Editor automatisch (abschaltbar in den Einstellungen).',
         '• Pfeile, Linien, Rechtecke, Ellipsen, Freihand und Text — in 6 Farben und 3 Strichstärken',
+        '• Auswahl-Werkzeug: jedes Objekt bleibt bis zum Speichern editierbar — anklicken, verschieben, über die Anfasser in der Größe ändern, Farbe/Stärke nachträglich wechseln',
         '• Verpixeln: Bereich aufziehen — beim Speichern fest ins Bild gerechnet, keine abnehmbare Ebene',
         '• Zuschneiden: Bereich wählen, „Zuschnitt anwenden“',
         'Undo/Redo jederzeit; gespeichert wird erst, wenn du „Speichern“ oder „Als Kopie speichern“ klickst.',
@@ -120,6 +121,7 @@ const de: Content = {
       body: [
         'Der Editor öffnet nach jeder Aufnahme (Einstellung „Editor nach der Aufnahme öffnen“) oder per Klick auf eine Karte in der Bibliothek.',
         'Werkzeuge in der Leiste:',
+        '• Auswählen & Verschieben — Objekt anklicken: Ziehen verschiebt es, die blauen Anfasser ändern Größe bzw. Endpunkte, Farbe/Strichstärke in der Leiste wirken aufs markierte Objekt. Doppelklick auf Text bearbeitet ihn, Entf/Backspace löscht, Pfeiltasten verschieben pixelweise (Shift = 10 px), Esc hebt die Auswahl auf.',
         '• Stift — Freihand zeichnen',
         '• Linie / Pfeil — gerade Verbindungen, Pfeil mit Spitze',
         '• Rechteck / Ellipse — Rahmen um Wichtiges',
@@ -253,6 +255,7 @@ const en: Content = {
       body: [
         'After a capture the editor opens automatically (can be turned off in Settings).',
         '• Arrows, lines, rectangles, ellipses, freehand and text — 6 colors, 3 stroke widths',
+        '• Select tool: every object stays editable until you save — click to select, drag to move, resize via handles, change color/width afterwards',
         '• Pixelate: drag an area — baked into the image on save, no removable layer',
         '• Crop: select an area, then “Apply crop”',
         'Undo/redo anytime; nothing is written until you hit “Save” or “Save as copy”.',
@@ -303,6 +306,7 @@ const en: Content = {
       body: [
         'The editor opens after every capture (setting “Open editor after capture”) or by clicking a card in the library.',
         'Tools in the bar:',
+        '• Select & move — click an object: drag moves it, the blue handles resize it or move its endpoints, color/width in the bar apply to the selected object. Double-click text to edit it, Del/Backspace deletes, arrow keys nudge by a pixel (Shift = 10 px), Esc deselects.',
         '• Pen — freehand drawing',
         '• Line / Arrow — straight connections, arrow with head',
         '• Rectangle / Ellipse — frames around what matters',

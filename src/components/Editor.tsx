@@ -5,6 +5,7 @@ import {
   IconArrow,
   IconCopy,
   IconCrop,
+  IconCursor,
   IconEllipse,
   IconFolder,
   IconLine,
@@ -18,10 +19,10 @@ import {
   IconUndo,
 } from '../icons';
 
-type Tool = 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'text' | 'pixelate' | 'crop';
+type Tool = 'select' | 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'text' | 'pixelate' | 'crop';
 
 interface Shape {
-  tool: Exclude<Tool, 'crop'>;
+  tool: Exclude<Tool, 'crop' | 'select'>;
   color: string;
   width: number;
   x1: number;
@@ -51,6 +52,11 @@ function drawArrowHead(
   ctx.moveTo(x2, y2);
   ctx.lineTo(x2 - len * Math.cos(angle + Math.PI / 7), y2 - len * Math.sin(angle + Math.PI / 7));
   ctx.stroke();
+}
+
+function textFont(s: Shape): { font: string; fontSize: number } {
+  const fontSize = 10 + s.width * 7;
+  return { font: `600 ${fontSize}px -apple-system, 'Segoe UI', sans-serif`, fontSize };
 }
 
 function drawShape(ctx: CanvasRenderingContext2D, s: Shape, base: HTMLCanvasElement) {
@@ -108,8 +114,8 @@ function drawShape(ctx: CanvasRenderingContext2D, s: Shape, base: HTMLCanvasElem
       break;
     }
     case 'text': {
-      const fontSize = 10 + s.width * 7;
-      ctx.font = `600 ${fontSize}px -apple-system, 'Segoe UI', sans-serif`;
+      const { font, fontSize } = textFont(s);
+      ctx.font = font;
       ctx.textBaseline = 'top';
       const lines = (s.text ?? '').split('\n');
       lines.forEach((line, i) => {
@@ -141,6 +147,127 @@ function drawShape(ctx: CanvasRenderingContext2D, s: Shape, base: HTMLCanvasElem
   ctx.restore();
 }
 
+// ---------- selection helpers ----------
+
+function shapeBBox(s: Shape, ctx: CanvasRenderingContext2D): { x: number; y: number; w: number; h: number } {
+  if (s.tool === 'pen' && s.points && s.points.length > 0) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of s.points) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+  if (s.tool === 'text') {
+    const { font, fontSize } = textFont(s);
+    ctx.save();
+    ctx.font = font;
+    const lines = (s.text ?? '').split('\n');
+    let w = 0;
+    for (const line of lines) w = Math.max(w, ctx.measureText(line).width);
+    ctx.restore();
+    return { x: s.x1, y: s.y1, w, h: lines.length * fontSize * 1.25 };
+  }
+  return {
+    x: Math.min(s.x1, s.x2),
+    y: Math.min(s.y1, s.y2),
+    w: Math.abs(s.x2 - s.x1),
+    h: Math.abs(s.y2 - s.y1),
+  };
+}
+
+function distToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+  const cx = x1 + t * dx;
+  const cy = y1 + t * dy;
+  return Math.hypot(px - cx, py - cy);
+}
+
+function hitShape(s: Shape, x: number, y: number, tol: number, ctx: CanvasRenderingContext2D): boolean {
+  const reach = tol + s.width / 2;
+  switch (s.tool) {
+    case 'line':
+    case 'arrow':
+      return distToSegment(x, y, s.x1, s.y1, s.x2, s.y2) <= reach;
+    case 'pen': {
+      const pts = s.points ?? [];
+      for (let i = 1; i < pts.length; i++) {
+        if (distToSegment(x, y, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y) <= reach) return true;
+      }
+      return false;
+    }
+    default: {
+      const b = shapeBBox(s, ctx);
+      return x >= b.x - tol && x <= b.x + b.w + tol && y >= b.y - tol && y <= b.y + b.h + tol;
+    }
+  }
+}
+
+function moveShape(s: Shape, dx: number, dy: number): Shape {
+  return {
+    ...s,
+    x1: s.x1 + dx,
+    y1: s.y1 + dy,
+    x2: s.x2 + dx,
+    y2: s.y2 + dy,
+    points: s.points?.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+  };
+}
+
+/** Boxy shapes get x1/y1 = top-left so handle indices stay stable while resizing. */
+function normalizeShape(s: Shape): Shape {
+  if (s.tool === 'line' || s.tool === 'arrow' || s.tool === 'pen' || s.tool === 'text') return s;
+  return {
+    ...s,
+    x1: Math.min(s.x1, s.x2),
+    y1: Math.min(s.y1, s.y2),
+    x2: Math.max(s.x1, s.x2),
+    y2: Math.max(s.y1, s.y2),
+  };
+}
+
+/** Resize handles: endpoints for lines/arrows, corners for boxy shapes. */
+function shapeHandles(s: Shape): { x: number; y: number }[] {
+  if (s.tool === 'line' || s.tool === 'arrow') {
+    return [
+      { x: s.x1, y: s.y1 },
+      { x: s.x2, y: s.y2 },
+    ];
+  }
+  if (s.tool === 'pen' || s.tool === 'text') return [];
+  return [
+    { x: s.x1, y: s.y1 },
+    { x: s.x2, y: s.y1 },
+    { x: s.x1, y: s.y2 },
+    { x: s.x2, y: s.y2 },
+  ];
+}
+
+function applyHandle(s: Shape, handle: number, x: number, y: number): Shape {
+  if (s.tool === 'line' || s.tool === 'arrow') {
+    return handle === 0 ? { ...s, x1: x, y1: y } : { ...s, x2: x, y2: y };
+  }
+  switch (handle) {
+    case 0:
+      return { ...s, x1: x, y1: y };
+    case 1:
+      return { ...s, x2: x, y1: y };
+    case 2:
+      return { ...s, x1: x, y2: y };
+    default:
+      return { ...s, x2: x, y2: y };
+  }
+}
+
+type Drag =
+  | { kind: 'move'; idx: number; startX: number; startY: number; orig: Shape; origAll: Shape[]; moved: boolean }
+  | { kind: 'handle'; idx: number; handle: number; orig: Shape; origAll: Shape[]; moved: boolean };
+
 export function Editor({
   shot,
   t,
@@ -157,19 +284,45 @@ export function Editor({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLCanvasElement | null>(null);
+  const dragRef = useRef<Drag | null>(null);
   const [baseVersion, setBaseVersion] = useState(0);
-  const [tool, setTool] = useState<Tool>('arrow');
+  const [tool, setToolState] = useState<Tool>('arrow');
   const [color, setColor] = useState(COLORS[0]);
   const [width, setWidth] = useState(4);
   const [shapes, setShapes] = useState<Shape[]>([]);
-  const [redoStack, setRedoStack] = useState<Shape[]>([]);
+  const [past, setPast] = useState<Shape[][]>([]);
+  const [future, setFuture] = useState<Shape[][]>([]);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [draft, setDraft] = useState<Shape | null>(null);
   const [cropDraft, setCropDraft] = useState<Shape | null>(null);
   const [textPos, setTextPos] = useState<{ x: number; y: number } | null>(null);
   const [textValue, setTextValue] = useState('');
+  const [textEditIdx, setTextEditIdx] = useState<number | null>(null);
   const [name, setName] = useState(shot.name);
   const [tags, setTags] = useState(shot.tags.join(', '));
   const [dirty, setDirty] = useState(false);
+
+  const setTool = (next: Tool) => {
+    setToolState(next);
+    if (next !== 'crop') setCropDraft(null);
+    if (next !== 'select') setSelectedIdx(null);
+  };
+
+  // every mutation goes through commitShapes so undo/redo covers add,
+  // move, resize, restyle, text edits and deletes alike
+  const pushHistory = useCallback((prev: Shape[]) => {
+    setPast((p) => [...p, prev]);
+    setFuture([]);
+    setDirty(true);
+  }, []);
+
+  const commitShapes = useCallback(
+    (next: Shape[]) => {
+      pushHistory(shapes);
+      setShapes(next);
+    },
+    [shapes, pushHistory]
+  );
 
   // load full-res image into an offscreen base canvas
   useEffect(() => {
@@ -184,7 +337,9 @@ export function Editor({
         c.getContext('2d')!.drawImage(img, 0, 0);
         baseRef.current = c;
         setShapes([]);
-        setRedoStack([]);
+        setPast([]);
+        setFuture([]);
+        setSelectedIdx(null);
         setDirty(false);
         setBaseVersion((v) => v + 1);
       };
@@ -204,8 +359,33 @@ export function Editor({
     canvas.height = base.height;
     const ctx = canvas.getContext('2d')!;
     ctx.drawImage(base, 0, 0);
-    for (const s of shapes) drawShape(ctx, s, base);
+    shapes.forEach((s, i) => {
+      if (i === textEditIdx) return; // being edited in the overlay
+      drawShape(ctx, s, base);
+    });
     if (draft) drawShape(ctx, draft, base);
+    if (selectedIdx != null && shapes[selectedIdx] && textEditIdx == null) {
+      const s = shapes[selectedIdx];
+      const b = shapeBBox(s, ctx);
+      const lw = Math.max(1.5, canvas.width / 800);
+      const pad = lw * 3;
+      ctx.save();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = lw;
+      ctx.setLineDash([6 * lw, 4 * lw]);
+      ctx.strokeRect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2);
+      ctx.setLineDash([]);
+      const r = Math.max(4, canvas.width / 220);
+      for (const h of shapeHandles(s)) {
+        ctx.fillStyle = '#38bdf8';
+        ctx.strokeStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.rect(h.x - r, h.y - r, r * 2, r * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     if (cropDraft) {
       const x = Math.min(cropDraft.x1, cropDraft.x2);
       const y = Math.min(cropDraft.y1, cropDraft.y2);
@@ -223,7 +403,7 @@ export function Editor({
       ctx.strokeRect(x, y, w, h);
       ctx.restore();
     }
-  }, [baseVersion, shapes, draft, cropDraft]);
+  }, [baseVersion, shapes, draft, cropDraft, selectedIdx, textEditIdx]);
 
   const toCanvasCoords = (e: React.MouseEvent): { x: number; y: number } => {
     const canvas = canvasRef.current!;
@@ -234,10 +414,18 @@ export function Editor({
     };
   };
 
+  const hitTolerance = () => Math.max(6, (canvasRef.current?.width ?? 800) / 150);
+
   const commitText = useCallback(() => {
-    if (textPos && textValue.trim()) {
-      setShapes((prev) => [
-        ...prev,
+    if (textEditIdx != null && shapes[textEditIdx]) {
+      const next = [...shapes];
+      if (textValue.trim()) next[textEditIdx] = { ...next[textEditIdx], text: textValue };
+      else next.splice(textEditIdx, 1);
+      commitShapes(next);
+      if (!textValue.trim()) setSelectedIdx(null);
+    } else if (textPos && textValue.trim()) {
+      commitShapes([
+        ...shapes,
         {
           tool: 'text',
           color,
@@ -249,12 +437,11 @@ export function Editor({
           text: textValue,
         },
       ]);
-      setRedoStack([]);
-      setDirty(true);
     }
     setTextPos(null);
     setTextValue('');
-  }, [textPos, textValue, color, width]);
+    setTextEditIdx(null);
+  }, [textPos, textValue, textEditIdx, shapes, color, width, commitShapes]);
 
   const onMouseDown = (e: React.MouseEvent) => {
     if (!baseRef.current) return;
@@ -263,6 +450,47 @@ export function Editor({
       return;
     }
     const { x, y } = toCanvasCoords(e);
+
+    if (tool === 'select') {
+      const ctx = canvasRef.current!.getContext('2d')!;
+      const tol = hitTolerance();
+      if (selectedIdx != null && shapes[selectedIdx]) {
+        const hs = shapeHandles(shapes[selectedIdx]);
+        const hi = hs.findIndex((h) => Math.abs(h.x - x) <= tol * 1.4 && Math.abs(h.y - y) <= tol * 1.4);
+        if (hi >= 0) {
+          const norm = normalizeShape(shapes[selectedIdx]);
+          if (norm !== shapes[selectedIdx])
+            setShapes(shapes.map((s, i) => (i === selectedIdx ? norm : s)));
+          dragRef.current = {
+            kind: 'handle',
+            idx: selectedIdx,
+            handle: hi,
+            orig: norm,
+            origAll: shapes,
+            moved: false,
+          };
+          return;
+        }
+      }
+      for (let i = shapes.length - 1; i >= 0; i--) {
+        if (hitShape(shapes[i], x, y, tol, ctx)) {
+          setSelectedIdx(i);
+          dragRef.current = {
+            kind: 'move',
+            idx: i,
+            startX: x,
+            startY: y,
+            orig: shapes[i],
+            origAll: shapes,
+            moved: false,
+          };
+          return;
+        }
+      }
+      setSelectedIdx(null);
+      return;
+    }
+
     if (tool === 'text') {
       setTextPos({ x, y });
       return;
@@ -285,8 +513,49 @@ export function Editor({
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
-    if (!draft && !cropDraft) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     const { x, y } = toCanvasCoords(e);
+
+    if (tool === 'select') {
+      const d = dragRef.current;
+      if (d) {
+        let next: Shape;
+        if (d.kind === 'move') {
+          const dx = x - d.startX;
+          const dy = y - d.startY;
+          if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) d.moved = true;
+          next = moveShape(d.orig, dx, dy);
+        } else {
+          d.moved = true;
+          next = applyHandle(d.orig, d.handle, x, y);
+        }
+        setShapes((prev) => prev.map((s, i) => (i === d.idx ? next : s)));
+        return;
+      }
+      // hover feedback
+      const ctx = canvas.getContext('2d')!;
+      const tol = hitTolerance();
+      let cursor = 'default';
+      if (selectedIdx != null && shapes[selectedIdx]) {
+        const hs = shapeHandles(shapes[selectedIdx]);
+        if (hs.some((h) => Math.abs(h.x - x) <= tol * 1.4 && Math.abs(h.y - y) <= tol * 1.4))
+          cursor = 'nwse-resize';
+      }
+      if (cursor === 'default') {
+        for (let i = shapes.length - 1; i >= 0; i--) {
+          if (hitShape(shapes[i], x, y, tol, ctx)) {
+            cursor = 'move';
+            break;
+          }
+        }
+      }
+      canvas.style.cursor = cursor;
+      return;
+    }
+    canvas.style.cursor = 'crosshair';
+
+    if (!draft && !cropDraft) return;
     if (cropDraft) {
       setCropDraft({ ...cropDraft, x2: x, y2: y });
       return;
@@ -299,19 +568,62 @@ export function Editor({
   };
 
   const onMouseUp = () => {
+    const d = dragRef.current;
+    if (d) {
+      if (d.moved) pushHistory(d.origAll);
+      dragRef.current = null;
+      return;
+    }
     if (draft) {
       const moved =
         Math.abs(draft.x2 - draft.x1) > 2 ||
         Math.abs(draft.y2 - draft.y1) > 2 ||
         (draft.points?.length ?? 0) > 2;
-      if (moved) {
-        setShapes((prev) => [...prev, draft]);
-        setRedoStack([]);
-        setDirty(true);
-      }
+      if (moved) commitShapes([...shapes, draft]);
       setDraft(null);
     }
   };
+
+  const onDoubleClick = (e: React.MouseEvent) => {
+    if (tool !== 'select' || textPos) return;
+    const { x, y } = toCanvasCoords(e);
+    const ctx = canvasRef.current!.getContext('2d')!;
+    const tol = hitTolerance();
+    for (let i = shapes.length - 1; i >= 0; i--) {
+      const s = shapes[i];
+      if (s.tool === 'text' && hitShape(s, x, y, tol, ctx)) {
+        setSelectedIdx(i);
+        setTextEditIdx(i);
+        setTextPos({ x: s.x1, y: s.y1 });
+        setTextValue(s.text ?? '');
+        return;
+      }
+    }
+  };
+
+  // Delete removes, arrows nudge (Shift = 10 px), Escape deselects
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+      if (selectedIdx == null || !shapes[selectedIdx]) return;
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        commitShapes(shapes.filter((_, i) => i !== selectedIdx));
+        setSelectedIdx(null);
+      } else if (e.key === 'Escape') {
+        setSelectedIdx(null);
+      } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        commitShapes(shapes.map((s, i) => (i === selectedIdx ? moveShape(s, dx, dy) : s)));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedIdx, shapes, commitShapes]);
 
   const bakeToCanvas = (): HTMLCanvasElement => {
     const base = baseRef.current!;
@@ -341,29 +653,51 @@ export function Editor({
     next.getContext('2d')!.drawImage(baked, x, y, w, h, 0, 0, w, h);
     baseRef.current = next;
     setShapes([]);
-    setRedoStack([]);
+    setPast([]);
+    setFuture([]);
+    setSelectedIdx(null);
     setCropDraft(null);
     setDirty(true);
     setBaseVersion((v) => v + 1);
   };
 
   const undo = () => {
-    setShapes((prev) => {
-      if (prev.length === 0) return prev;
-      const last = prev[prev.length - 1];
-      setRedoStack((r) => [...r, last]);
-      return prev.slice(0, -1);
-    });
+    if (past.length === 0) return;
+    const prev = past[past.length - 1];
+    setPast(past.slice(0, -1));
+    setFuture([...future, shapes]);
+    setShapes(prev);
+    setSelectedIdx(null);
+    setDirty(true);
   };
 
   const redo = () => {
-    setRedoStack((prev) => {
-      if (prev.length === 0) return prev;
-      const last = prev[prev.length - 1];
-      setShapes((s) => [...s, last]);
-      return prev.slice(0, -1);
-    });
+    if (future.length === 0) return;
+    const next = future[future.length - 1];
+    setFuture(future.slice(0, -1));
+    setPast([...past, shapes]);
+    setShapes(next);
+    setSelectedIdx(null);
+    setDirty(true);
   };
+
+  // color/width apply to the selected object; otherwise they set the default
+  const applyColor = (c: string) => {
+    setColor(c);
+    if (selectedIdx != null && shapes[selectedIdx] && shapes[selectedIdx].color !== c) {
+      commitShapes(shapes.map((s, i) => (i === selectedIdx ? { ...s, color: c } : s)));
+    }
+  };
+
+  const applyWidth = (w: number) => {
+    setWidth(w);
+    if (selectedIdx != null && shapes[selectedIdx] && shapes[selectedIdx].width !== w) {
+      commitShapes(shapes.map((s, i) => (i === selectedIdx ? { ...s, width: w } : s)));
+    }
+  };
+
+  const activeColor = selectedIdx != null && shapes[selectedIdx] ? shapes[selectedIdx].color : color;
+  const activeWidth = selectedIdx != null && shapes[selectedIdx] ? shapes[selectedIdx].width : width;
 
   const save = (mode: 'overwrite' | 'copy') => {
     const dataUrl = bakeToCanvas().toDataURL('image/png');
@@ -391,6 +725,7 @@ export function Editor({
   }
 
   const tools: { key: Tool; icon: JSX.Element; label: string }[] = [
+    { key: 'select', icon: <IconCursor />, label: t.toolSelect },
     { key: 'pen', icon: <IconPen />, label: t.toolPen },
     { key: 'line', icon: <IconLine />, label: t.toolLine },
     { key: 'arrow', icon: <IconArrow />, label: t.toolArrow },
@@ -414,10 +749,7 @@ export function Editor({
             key={tl.key}
             className={`icon ${tool === tl.key ? 'active' : ''}`}
             title={tl.label}
-            onClick={() => {
-              setTool(tl.key);
-              if (tl.key !== 'crop') setCropDraft(null);
-            }}
+            onClick={() => setTool(tl.key)}
           >
             {tl.icon}
           </button>
@@ -426,26 +758,26 @@ export function Editor({
         {COLORS.map((c) => (
           <button
             key={c}
-            className={`colorbtn ${color === c ? 'active' : ''}`}
+            className={`colorbtn ${activeColor === c ? 'active' : ''}`}
             style={{ background: c }}
-            onClick={() => setColor(c)}
+            onClick={() => applyColor(c)}
           />
         ))}
         <span className="sep" />
         {WIDTHS.map((w) => (
           <button
             key={w}
-            className={`icon widthbtn ${width === w ? 'active' : ''}`}
-            onClick={() => setWidth(w)}
+            className={`icon widthbtn ${activeWidth === w ? 'active' : ''}`}
+            onClick={() => applyWidth(w)}
           >
             {w}px
           </button>
         ))}
         <span className="sep" />
-        <button className="icon" title={t.undo} onClick={undo} disabled={shapes.length === 0}>
+        <button className="icon" title={t.undo} onClick={undo} disabled={past.length === 0}>
           <IconUndo />
         </button>
-        <button className="icon" title={t.redo} onClick={redo} disabled={redoStack.length === 0}>
+        <button className="icon" title={t.redo} onClick={redo} disabled={future.length === 0}>
           <IconRedo />
         </button>
         {cropDraft && (
@@ -473,6 +805,7 @@ export function Editor({
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
+            onDoubleClick={onDoubleClick}
           />
           {textPos && textInputStyle && (
             <textarea
@@ -491,6 +824,7 @@ export function Editor({
                 if (e.key === 'Escape') {
                   setTextPos(null);
                   setTextValue('');
+                  setTextEditIdx(null);
                 }
               }}
             />
@@ -565,6 +899,7 @@ export function Editor({
             <span className="k">date</span>
             <span>{new Date(shot.capturedAt).toLocaleString()}</span>
           </div>
+          <div className="note">{t.selectHint}</div>
           <div className="note">{t.pixelateNote}</div>
         </div>
       </div>
