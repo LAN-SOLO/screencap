@@ -20,10 +20,11 @@
 
 html, body, #root { height: 100%; }
 body {
-  font-family: var(--sans);
+  /* Terminal-Look: Mono als UI-Schrift, nicht nur für Akzente */
+  font-family: var(--mono);
   background: var(--bg);
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
