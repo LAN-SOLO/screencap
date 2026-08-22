@@ -34,7 +34,7 @@ const de = {
   back: 'Bibliothek',
   toolSelect: 'Auswählen & Verschieben',
   selectHint:
-    'Objekt anklicken: verschieben, Anfasser ziehen, Farbe/Stärke ändern. Doppelklick auf Text bearbeitet ihn, Entf löscht, Pfeiltasten verschieben (Shift = 10 px).',
+    'Objekt anklicken: verschieben, über Eck-/Kanten-Anfasser skalieren, dehnen und stauchen; Linien/Pfeile am runden Mittel-Anfasser biegen. ⌘D/⌘C+⌘V dupliziert, ⌥-Ziehen kopiert, Doppelklick bearbeitet Text, Entf löscht, Pfeiltasten verschieben (Shift = 10 px).',
   toolPen: 'Stift',
   toolLine: 'Linie',
   toolArrow: 'Pfeil',
@@ -119,7 +119,7 @@ const en: typeof de = {
   back: 'Library',
   toolSelect: 'Select & move',
   selectHint:
-    'Click an object: drag to move, pull handles, change color/width. Double-click text to edit, Del deletes, arrow keys nudge (Shift = 10 px).',
+    'Click an object: drag to move, scale/stretch/squash via corner and edge handles; bend lines/arrows with the round middle handle. ⌘D/⌘C+⌘V duplicates, ⌥-drag copies, double-click edits text, Del deletes, arrow keys nudge (Shift = 10 px).',
   toolPen: 'Pen',
   toolLine: 'Line',
   toolArrow: 'Arrow',

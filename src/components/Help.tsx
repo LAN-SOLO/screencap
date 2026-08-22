@@ -70,7 +70,7 @@ const de: Content = {
       body: [
         'Nach der Aufnahme öffnet sich der Editor automatisch (abschaltbar in den Einstellungen).',
         '• Pfeile, Linien, Rechtecke, Ellipsen, Freihand und Text — in 6 Farben und 3 Strichstärken',
-        '• Auswahl-Werkzeug: jedes Objekt bleibt bis zum Speichern editierbar — anklicken, verschieben, über die Anfasser in der Größe ändern, Farbe/Stärke nachträglich wechseln',
+        '• Auswahl-Werkzeug: jedes Objekt bleibt bis zum Speichern voll editierbar — verschieben, über Eck- und Kanten-Anfasser skalieren, dehnen und stauchen, Linien/Pfeile biegen, duplizieren (⌘D, ⌥-Ziehen), Farbe/Stärke nachträglich wechseln',
         '• Verpixeln: Bereich aufziehen — beim Speichern fest ins Bild gerechnet, keine abnehmbare Ebene',
         '• Zuschneiden: Bereich wählen, „Zuschnitt anwenden“',
         'Undo/Redo jederzeit; gespeichert wird erst, wenn du „Speichern“ oder „Als Kopie speichern“ klickst.',
@@ -121,7 +121,7 @@ const de: Content = {
       body: [
         'Der Editor öffnet nach jeder Aufnahme (Einstellung „Editor nach der Aufnahme öffnen“) oder per Klick auf eine Karte in der Bibliothek.',
         'Werkzeuge in der Leiste:',
-        '• Auswählen & Verschieben — Objekt anklicken: Ziehen verschiebt es, die blauen Anfasser ändern Größe bzw. Endpunkte, Farbe/Strichstärke in der Leiste wirken aufs markierte Objekt. Doppelklick auf Text bearbeitet ihn, Entf/Backspace löscht, Pfeiltasten verschieben pixelweise (Shift = 10 px), Esc hebt die Auswahl auf.',
+        '• Auswählen & Verschieben — Objekt anklicken: Ziehen verschiebt es; die 8 Eck-/Kanten-Anfasser skalieren, dehnen und stauchen jedes Objekt (auch Freihand und Text), bei Linien/Pfeilen sitzen Anfasser an den Endpunkten plus ein runder Biege-Anfasser in der Mitte (zurück zur Geraden: nahe an die Mitte ziehen). Farbe/Strichstärke in der Leiste wirken aufs markierte Objekt. Kopieren: ⌘D oder ⌘C/⌘V dupliziert, ⌥-Ziehen zieht eine Kopie ab. Doppelklick auf Text bearbeitet ihn, Entf/Backspace löscht, Pfeiltasten verschieben pixelweise (Shift = 10 px), Esc: Auswahl aufheben bzw. zurück zur Bibliothek.',
         '• Stift — Freihand zeichnen',
         '• Linie / Pfeil — gerade Verbindungen, Pfeil mit Spitze',
         '• Rechteck / Ellipse — Rahmen um Wichtiges',
@@ -255,7 +255,7 @@ const en: Content = {
       body: [
         'After a capture the editor opens automatically (can be turned off in Settings).',
         '• Arrows, lines, rectangles, ellipses, freehand and text — 6 colors, 3 stroke widths',
-        '• Select tool: every object stays editable until you save — click to select, drag to move, resize via handles, change color/width afterwards',
+        '• Select tool: every object stays fully editable until you save — move, scale/stretch/squash via corner and edge handles, bend lines/arrows, duplicate (⌘D, ⌥-drag), change color/width afterwards',
         '• Pixelate: drag an area — baked into the image on save, no removable layer',
         '• Crop: select an area, then “Apply crop”',
         'Undo/redo anytime; nothing is written until you hit “Save” or “Save as copy”.',
@@ -306,7 +306,7 @@ const en: Content = {
       body: [
         'The editor opens after every capture (setting “Open editor after capture”) or by clicking a card in the library.',
         'Tools in the bar:',
-        '• Select & move — click an object: drag moves it, the blue handles resize it or move its endpoints, color/width in the bar apply to the selected object. Double-click text to edit it, Del/Backspace deletes, arrow keys nudge by a pixel (Shift = 10 px), Esc deselects.',
+        '• Select & move — click an object: drag moves it; the 8 corner/edge handles scale, stretch and squash any object (freehand and text included), lines/arrows get endpoint handles plus a round bend handle in the middle (drag it near the midpoint to snap back straight). Color/width in the bar apply to the selected object. Copying: ⌘D or ⌘C/⌘V duplicates, ⌥-drag peels off a copy. Double-click text to edit it, Del/Backspace deletes, arrow keys nudge by a pixel (Shift = 10 px), Esc: deselect or back to the library.',
         '• Pen — freehand drawing',
         '• Line / Arrow — straight connections, arrow with head',
         '• Rectangle / Ellipse — frames around what matters',

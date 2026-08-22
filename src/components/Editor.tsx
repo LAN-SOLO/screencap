@@ -31,6 +31,48 @@ interface Shape {
   y2: number;
   points?: { x: number; y: number }[];
   text?: string;
+  /** line/arrow: perpendicular offset of the curve midpoint (0 = straight) */
+  bend?: number;
+  /** text: non-uniform stretch factors applied around the anchor (x1/y1) */
+  scaleX?: number;
+  scaleY?: number;
+}
+
+const cloneShape = (s: Shape): Shape => ({ ...s, points: s.points?.map((p) => ({ ...p })) });
+
+/** Control point of the quadratic curve a bent line/arrow follows. */
+function bendControl(s: Shape): { x: number; y: number } | null {
+  if (!s.bend) return null;
+  const dx = s.x2 - s.x1;
+  const dy = s.y2 - s.y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  return {
+    x: (s.x1 + s.x2) / 2 + nx * s.bend * 2,
+    y: (s.y1 + s.y2) / 2 + ny * s.bend * 2,
+  };
+}
+
+/** Sampled polyline of a (possibly bent) line/arrow, for hit tests and bbox. */
+function linePoints(s: Shape): { x: number; y: number }[] {
+  const cp = bendControl(s);
+  if (!cp) {
+    return [
+      { x: s.x1, y: s.y1 },
+      { x: s.x2, y: s.y2 },
+    ];
+  }
+  const pts: { x: number; y: number }[] = [];
+  const N = 16;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const a = (1 - t) * (1 - t);
+    const b = 2 * (1 - t) * t;
+    const c = t * t;
+    pts.push({ x: a * s.x1 + b * cp.x + c * s.x2, y: a * s.y1 + b * cp.y + c * s.y2 });
+  }
+  return pts;
 }
 
 const COLORS = ['#f87171', '#fbbf24', '#34d399', '#38bdf8', '#ffffff', '#111827'];
@@ -76,18 +118,24 @@ function drawShape(ctx: CanvasRenderingContext2D, s: Shape, base: HTMLCanvasElem
       break;
     }
     case 'line': {
+      const cp = bendControl(s);
       ctx.beginPath();
       ctx.moveTo(s.x1, s.y1);
-      ctx.lineTo(s.x2, s.y2);
+      if (cp) ctx.quadraticCurveTo(cp.x, cp.y, s.x2, s.y2);
+      else ctx.lineTo(s.x2, s.y2);
       ctx.stroke();
       break;
     }
     case 'arrow': {
+      const cp = bendControl(s);
       ctx.beginPath();
       ctx.moveTo(s.x1, s.y1);
-      ctx.lineTo(s.x2, s.y2);
+      if (cp) ctx.quadraticCurveTo(cp.x, cp.y, s.x2, s.y2);
+      else ctx.lineTo(s.x2, s.y2);
       ctx.stroke();
-      drawArrowHead(ctx, s.x1, s.y1, s.x2, s.y2, s.width);
+      // the head follows the curve's tangent at the tip
+      const from = cp ?? { x: s.x1, y: s.y1 };
+      drawArrowHead(ctx, from.x, from.y, s.x2, s.y2, s.width);
       break;
     }
     case 'rect': {
@@ -117,9 +165,11 @@ function drawShape(ctx: CanvasRenderingContext2D, s: Shape, base: HTMLCanvasElem
       const { font, fontSize } = textFont(s);
       ctx.font = font;
       ctx.textBaseline = 'top';
+      ctx.translate(s.x1, s.y1);
+      ctx.scale(s.scaleX ?? 1, s.scaleY ?? 1);
       const lines = (s.text ?? '').split('\n');
       lines.forEach((line, i) => {
-        ctx.fillText(line, s.x1, s.y1 + i * fontSize * 1.25);
+        ctx.fillText(line, 0, i * fontSize * 1.25);
       });
       break;
     }
@@ -149,16 +199,23 @@ function drawShape(ctx: CanvasRenderingContext2D, s: Shape, base: HTMLCanvasElem
 
 // ---------- selection helpers ----------
 
+function bboxOfPoints(pts: { x: number; y: number }[]): { x: number; y: number; w: number; h: number } {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of pts) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
 function shapeBBox(s: Shape, ctx: CanvasRenderingContext2D): { x: number; y: number; w: number; h: number } {
   if (s.tool === 'pen' && s.points && s.points.length > 0) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of s.points) {
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x);
-      maxY = Math.max(maxY, p.y);
-    }
-    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    return bboxOfPoints(s.points);
+  }
+  if (s.tool === 'line' || s.tool === 'arrow') {
+    return bboxOfPoints(linePoints(s));
   }
   if (s.tool === 'text') {
     const { font, fontSize } = textFont(s);
@@ -168,7 +225,12 @@ function shapeBBox(s: Shape, ctx: CanvasRenderingContext2D): { x: number; y: num
     let w = 0;
     for (const line of lines) w = Math.max(w, ctx.measureText(line).width);
     ctx.restore();
-    return { x: s.x1, y: s.y1, w, h: lines.length * fontSize * 1.25 };
+    return {
+      x: s.x1,
+      y: s.y1,
+      w: w * (s.scaleX ?? 1),
+      h: lines.length * fontSize * 1.25 * (s.scaleY ?? 1),
+    };
   }
   return {
     x: Math.min(s.x1, s.x2),
@@ -188,19 +250,21 @@ function distToSegment(px: number, py: number, x1: number, y1: number, x2: numbe
   return Math.hypot(px - cx, py - cy);
 }
 
+function hitPolyline(pts: { x: number; y: number }[], x: number, y: number, reach: number): boolean {
+  for (let i = 1; i < pts.length; i++) {
+    if (distToSegment(x, y, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y) <= reach) return true;
+  }
+  return false;
+}
+
 function hitShape(s: Shape, x: number, y: number, tol: number, ctx: CanvasRenderingContext2D): boolean {
   const reach = tol + s.width / 2;
   switch (s.tool) {
     case 'line':
     case 'arrow':
-      return distToSegment(x, y, s.x1, s.y1, s.x2, s.y2) <= reach;
-    case 'pen': {
-      const pts = s.points ?? [];
-      for (let i = 1; i < pts.length; i++) {
-        if (distToSegment(x, y, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y) <= reach) return true;
-      }
-      return false;
-    }
+      return hitPolyline(linePoints(s), x, y, reach);
+    case 'pen':
+      return hitPolyline(s.points ?? [], x, y, reach);
     default: {
       const b = shapeBBox(s, ctx);
       return x >= b.x - tol && x <= b.x + b.w + tol && y >= b.y - tol && y <= b.y + b.h + tol;
@@ -219,54 +283,139 @@ function moveShape(s: Shape, dx: number, dy: number): Shape {
   };
 }
 
-/** Boxy shapes get x1/y1 = top-left so handle indices stay stable while resizing. */
-function normalizeShape(s: Shape): Shape {
-  if (s.tool === 'line' || s.tool === 'arrow' || s.tool === 'pen' || s.tool === 'text') return s;
-  return {
-    ...s,
-    x1: Math.min(s.x1, s.x2),
-    y1: Math.min(s.y1, s.y2),
-    x2: Math.max(s.x1, s.x2),
-    y2: Math.max(s.y1, s.y2),
-  };
+interface Handle {
+  x: number;
+  y: number;
+  /** end = line endpoint, bend = curve handle, others = bbox scaling */
+  kind: 'end' | 'bend' | 'corner' | 'edge';
+  cursor: string;
 }
 
-/** Resize handles: endpoints for lines/arrows, corners for boxy shapes. */
-function shapeHandles(s: Shape): { x: number; y: number }[] {
+/**
+ * Resize handles. Lines/arrows: two endpoints plus a bend handle on the curve
+ * midpoint. Everything else (incl. pen and text): 8 bbox handles — corners
+ * and edge midpoints — for scaling, stretching and squashing.
+ */
+function shapeHandles(s: Shape, ctx: CanvasRenderingContext2D): Handle[] {
   if (s.tool === 'line' || s.tool === 'arrow') {
+    const pts = linePoints(s);
+    const mid = pts[Math.floor(pts.length / 2)];
     return [
-      { x: s.x1, y: s.y1 },
-      { x: s.x2, y: s.y2 },
+      { x: s.x1, y: s.y1, kind: 'end', cursor: 'move' },
+      { x: s.x2, y: s.y2, kind: 'end', cursor: 'move' },
+      { x: mid.x, y: mid.y, kind: 'bend', cursor: 'grab' },
     ];
   }
-  if (s.tool === 'pen' || s.tool === 'text') return [];
+  const b = shapeBBox(s, ctx);
   return [
-    { x: s.x1, y: s.y1 },
-    { x: s.x2, y: s.y1 },
-    { x: s.x1, y: s.y2 },
-    { x: s.x2, y: s.y2 },
+    { x: b.x, y: b.y, kind: 'corner', cursor: 'nwse-resize' },
+    { x: b.x + b.w, y: b.y, kind: 'corner', cursor: 'nesw-resize' },
+    { x: b.x, y: b.y + b.h, kind: 'corner', cursor: 'nesw-resize' },
+    { x: b.x + b.w, y: b.y + b.h, kind: 'corner', cursor: 'nwse-resize' },
+    { x: b.x + b.w / 2, y: b.y, kind: 'edge', cursor: 'ns-resize' },
+    { x: b.x + b.w / 2, y: b.y + b.h, kind: 'edge', cursor: 'ns-resize' },
+    { x: b.x, y: b.y + b.h / 2, kind: 'edge', cursor: 'ew-resize' },
+    { x: b.x + b.w, y: b.y + b.h / 2, kind: 'edge', cursor: 'ew-resize' },
   ];
 }
 
-function applyHandle(s: Shape, handle: number, x: number, y: number): Shape {
-  if (s.tool === 'line' || s.tool === 'arrow') {
-    return handle === 0 ? { ...s, x1: x, y1: y } : { ...s, x2: x, y2: y };
+/** Map a shape's geometry from its original bbox into a new one. */
+function mapToBBox(
+  orig: Shape,
+  b0: { x: number; y: number; w: number; h: number },
+  b1: { x: number; y: number; w: number; h: number }
+): Shape {
+  const sx = b1.w / Math.max(b0.w, 1);
+  const sy = b1.h / Math.max(b0.h, 1);
+  const mx = (v: number) => b1.x + (v - b0.x) * sx;
+  const my = (v: number) => b1.y + (v - b0.y) * sy;
+  if (orig.tool === 'text') {
+    return {
+      ...orig,
+      x1: b1.x,
+      y1: b1.y,
+      x2: b1.x,
+      y2: b1.y,
+      scaleX: (orig.scaleX ?? 1) * sx,
+      scaleY: (orig.scaleY ?? 1) * sy,
+    };
   }
-  switch (handle) {
-    case 0:
-      return { ...s, x1: x, y1: y };
-    case 1:
-      return { ...s, x2: x, y1: y };
-    case 2:
-      return { ...s, x1: x, y2: y };
-    default:
-      return { ...s, x2: x, y2: y };
+  return {
+    ...orig,
+    x1: mx(orig.x1),
+    y1: my(orig.y1),
+    x2: mx(orig.x2),
+    y2: my(orig.y2),
+    bend: orig.bend ? orig.bend * ((sx + sy) / 2) : orig.bend,
+    points: orig.points?.map((p) => ({ x: mx(p.x), y: my(p.y) })),
+  };
+}
+
+const MIN_SIZE = 4;
+
+/**
+ * Apply a handle drag to the shape as captured at drag start (`orig` with its
+ * original bbox `b0`), targeting cursor position (x, y).
+ */
+function applyHandle(
+  orig: Shape,
+  b0: { x: number; y: number; w: number; h: number },
+  handle: number,
+  handles: Handle[],
+  x: number,
+  y: number
+): Shape {
+  const h = handles[handle];
+  if (h.kind === 'end') {
+    return handle === 0 ? { ...orig, x1: x, y1: y } : { ...orig, x2: x, y2: y };
   }
+  if (h.kind === 'bend') {
+    const dx = orig.x2 - orig.x1;
+    const dy = orig.y2 - orig.y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const midX = (orig.x1 + orig.x2) / 2;
+    const midY = (orig.y1 + orig.y2) / 2;
+    let bend = (x - midX) * nx + (y - midY) * ny;
+    if (Math.abs(bend) < 3) bend = 0; // snap back to straight
+    return { ...orig, bend };
+  }
+  const right = b0.x + b0.w;
+  const bottom = b0.y + b0.h;
+  let b1 = { ...b0 };
+  const clampW = (w: number) => Math.max(w, MIN_SIZE);
+  const clampH = (hh: number) => Math.max(hh, MIN_SIZE);
+  // handle order: 0 tl, 1 tr, 2 bl, 3 br, 4 top, 5 bottom, 6 left, 7 right
+  if (handle === 0 || handle === 2 || handle === 6) {
+    const nx2 = Math.min(x, right - MIN_SIZE);
+    b1 = { ...b1, x: nx2, w: right - nx2 };
+  }
+  if (handle === 1 || handle === 3 || handle === 7) {
+    b1 = { ...b1, w: clampW(x - b0.x) };
+  }
+  if (handle === 0 || handle === 1 || handle === 4) {
+    const ny2 = Math.min(y, bottom - MIN_SIZE);
+    b1 = { ...b1, y: ny2, h: bottom - ny2 };
+  }
+  if (handle === 2 || handle === 3 || handle === 5) {
+    b1 = { ...b1, h: clampH(y - b0.y) };
+  }
+  return mapToBBox(orig, b0, b1);
 }
 
 type Drag =
   | { kind: 'move'; idx: number; startX: number; startY: number; orig: Shape; origAll: Shape[]; moved: boolean }
-  | { kind: 'handle'; idx: number; handle: number; orig: Shape; origAll: Shape[]; moved: boolean };
+  | {
+      kind: 'handle';
+      idx: number;
+      handle: number;
+      handles: Handle[];
+      b0: { x: number; y: number; w: number; h: number };
+      orig: Shape;
+      origAll: Shape[];
+      moved: boolean;
+    };
 
 export function Editor({
   shot,
@@ -285,6 +434,7 @@ export function Editor({
   const wrapRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLCanvasElement | null>(null);
   const dragRef = useRef<Drag | null>(null);
+  const clipRef = useRef<Shape | null>(null); // internal object clipboard (⌘C/⌘V)
   const [baseVersion, setBaseVersion] = useState(0);
   const [tool, setToolState] = useState<Tool>('arrow');
   const [color, setColor] = useState(COLORS[0]);
@@ -376,11 +526,13 @@ export function Editor({
       ctx.strokeRect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2);
       ctx.setLineDash([]);
       const r = Math.max(4, canvas.width / 220);
-      for (const h of shapeHandles(s)) {
-        ctx.fillStyle = '#38bdf8';
-        ctx.strokeStyle = '#ffffff';
+      for (const h of shapeHandles(s, ctx)) {
+        ctx.fillStyle = h.kind === 'bend' ? '#ffffff' : '#38bdf8';
+        ctx.strokeStyle = h.kind === 'bend' ? '#38bdf8' : '#ffffff';
         ctx.beginPath();
-        ctx.rect(h.x - r, h.y - r, r * 2, r * 2);
+        // bend handle is a circle so it reads as "different kind of drag"
+        if (h.kind === 'bend') ctx.arc(h.x, h.y, r, 0, Math.PI * 2);
+        else ctx.rect(h.x - r, h.y - r, r * 2, r * 2);
         ctx.fill();
         ctx.stroke();
       }
@@ -455,17 +607,17 @@ export function Editor({
       const ctx = canvasRef.current!.getContext('2d')!;
       const tol = hitTolerance();
       if (selectedIdx != null && shapes[selectedIdx]) {
-        const hs = shapeHandles(shapes[selectedIdx]);
+        const sel = shapes[selectedIdx];
+        const hs = shapeHandles(sel, ctx);
         const hi = hs.findIndex((h) => Math.abs(h.x - x) <= tol * 1.4 && Math.abs(h.y - y) <= tol * 1.4);
         if (hi >= 0) {
-          const norm = normalizeShape(shapes[selectedIdx]);
-          if (norm !== shapes[selectedIdx])
-            setShapes(shapes.map((s, i) => (i === selectedIdx ? norm : s)));
           dragRef.current = {
             kind: 'handle',
             idx: selectedIdx,
             handle: hi,
-            orig: norm,
+            handles: hs,
+            b0: shapeBBox(sel, ctx),
+            orig: sel,
             origAll: shapes,
             moved: false,
           };
@@ -474,6 +626,23 @@ export function Editor({
       }
       for (let i = shapes.length - 1; i >= 0; i--) {
         if (hitShape(shapes[i], x, y, tol, ctx)) {
+          if (e.altKey) {
+            // option-drag: duplicate the object and drag the copy
+            const copy = cloneShape(shapes[i]);
+            const next = [...shapes, copy];
+            setShapes(next);
+            setSelectedIdx(next.length - 1);
+            dragRef.current = {
+              kind: 'move',
+              idx: next.length - 1,
+              startX: x,
+              startY: y,
+              orig: copy,
+              origAll: shapes,
+              moved: true,
+            };
+            return;
+          }
           setSelectedIdx(i);
           dragRef.current = {
             kind: 'move',
@@ -528,7 +697,7 @@ export function Editor({
           next = moveShape(d.orig, dx, dy);
         } else {
           d.moved = true;
-          next = applyHandle(d.orig, d.handle, x, y);
+          next = applyHandle(d.orig, d.b0, d.handle, d.handles, x, y);
         }
         setShapes((prev) => prev.map((s, i) => (i === d.idx ? next : s)));
         return;
@@ -538,9 +707,9 @@ export function Editor({
       const tol = hitTolerance();
       let cursor = 'default';
       if (selectedIdx != null && shapes[selectedIdx]) {
-        const hs = shapeHandles(shapes[selectedIdx]);
-        if (hs.some((h) => Math.abs(h.x - x) <= tol * 1.4 && Math.abs(h.y - y) <= tol * 1.4))
-          cursor = 'nwse-resize';
+        const hs = shapeHandles(shapes[selectedIdx], ctx);
+        const hov = hs.find((h) => Math.abs(h.x - x) <= tol * 1.4 && Math.abs(h.y - y) <= tol * 1.4);
+        if (hov) cursor = hov.cursor;
       }
       if (cursor === 'default') {
         for (let i = shapes.length - 1; i >= 0; i--) {
@@ -601,17 +770,43 @@ export function Editor({
     }
   };
 
-  // Delete removes, arrows nudge (Shift = 10 px), Escape deselects
+  // Delete removes, arrows nudge (Shift = 10 px), Escape steps back:
+  // crop → selection → library
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (cropDraft) setCropDraft(null);
+        else if (selectedIdx != null) setSelectedIdx(null);
+        else onBack();
+        return;
+      }
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'v' && clipRef.current) {
+        e.preventDefault();
+        const copy = moveShape(cloneShape(clipRef.current), 16, 16);
+        commitShapes([...shapes, copy]);
+        setSelectedIdx(shapes.length);
+        return;
+      }
       if (selectedIdx == null || !shapes[selectedIdx]) return;
+      if (mod && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        clipRef.current = cloneShape(shapes[selectedIdx]);
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        const copy = moveShape(cloneShape(shapes[selectedIdx]), 16, 16);
+        commitShapes([...shapes, copy]);
+        setSelectedIdx(shapes.length);
+        return;
+      }
       if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault();
         commitShapes(shapes.filter((_, i) => i !== selectedIdx));
-        setSelectedIdx(null);
-      } else if (e.key === 'Escape') {
         setSelectedIdx(null);
       } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
@@ -623,7 +818,7 @@ export function Editor({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedIdx, shapes, commitShapes]);
+  }, [selectedIdx, shapes, commitShapes, cropDraft, onBack]);
 
   const bakeToCanvas = (): HTMLCanvasElement => {
     const base = baseRef.current!;
@@ -878,8 +1073,11 @@ export function Editor({
             </button>
             <button
               className="danger"
-              onClick={() => {
-                if (window.confirm(t.deleteConfirm)) {
+              onClick={async () => {
+                // window.confirm is unreliable in the Tauri webview — use the
+                // native dialog plugin like the other LAN-SOLO apps
+                const { confirm } = await import('@tauri-apps/plugin-dialog');
+                if (await confirm(t.deleteConfirm)) {
                   api.deleteShot(shot.id).then(() => onShotChanged(null));
                 }
               }}

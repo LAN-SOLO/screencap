@@ -263,9 +263,10 @@ export default function App() {
                     <button
                       className="icon"
                       title={t.delete}
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        if (window.confirm(t.deleteConfirm)) api.deleteShot(s.id);
+                        const { confirm } = await import('@tauri-apps/plugin-dialog');
+                        if (await confirm(t.deleteConfirm)) api.deleteShot(s.id);
                       }}
                     >
                       <IconTrash />
