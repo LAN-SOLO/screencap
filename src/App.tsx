@@ -94,6 +94,19 @@ export default function App() {
 
   useEffect(refresh, [refresh]);
 
+  // Darstellung: data-theme auf <html>, styles.css schaltet die Palette um.
+  // localStorage spiegelt den Wert, damit main.tsx ihn vor dem ersten Render setzen kann.
+  useEffect(() => {
+    if (!settings) return;
+    const theme = settings.theme === 'light' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem('theme', theme);
+    } catch {
+      /* Storage nicht verfügbar — kein Problem, Settings sind die Quelle */
+    }
+  }, [settings]);
+
   useEffect(() => {
     const subs = [
       listen('library-changed', refresh),

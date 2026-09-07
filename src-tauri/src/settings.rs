@@ -9,6 +9,9 @@ use tauri::Manager;
 pub struct Settings {
     /// "de" | "en"
     pub language: String,
+    /// "dark" | "light" — Darstellung der Oberfläche (Default dark).
+    #[serde(default = "default_theme")]
+    pub theme: String,
     /// Library folder; empty = default (~/Pictures/screencap).
     pub library_dir: String,
     /// "png" | "jpg"
@@ -32,6 +35,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             language: if sys_locale_is_german() { "de" } else { "en" }.into(),
+            theme: default_theme(),
             library_dir: String::new(),
             format: "png".into(),
             delay_default: 0,
@@ -55,6 +59,10 @@ impl Settings {
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
             .join("screencap")
     }
+}
+
+fn default_theme() -> String {
+    "dark".into()
 }
 
 fn sys_locale_is_german() -> bool {

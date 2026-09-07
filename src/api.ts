@@ -18,6 +18,7 @@ export interface Shot {
 
 export interface Settings {
   language: 'de' | 'en';
+  theme: 'dark' | 'light';
   libraryDir: string;
   format: 'png' | 'jpg';
   delayDefault: number;

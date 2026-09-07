@@ -179,6 +179,7 @@ const de: Content = {
       title: 'Einstellungen',
       body: [
         '• Sprache — Deutsch / English',
+        '• Modus — Dunkel (Standard) oder Hell; die Oberfläche wechselt sofort nach dem Speichern',
         '• Ablage-Ordner — wohin Aufnahmen gespeichert werden (leer = ~/Pictures/screencap)',
         '• Format — PNG (verlustfrei) oder JPG (kleiner)',
         '• Standard-Verzögerung — gilt für Kürzel- und Tray-Aufnahmen',
@@ -365,6 +366,7 @@ const en: Content = {
       title: 'Settings',
       body: [
         '• Language — Deutsch / English',
+        '• Mode — Dark (default) or Light; the UI switches right after saving',
         '• Library folder — where captures are stored (empty = ~/Pictures/screencap)',
         '• Format — PNG (lossless) or JPG (smaller)',
         '• Default delay — applies to shortcut and tray captures',

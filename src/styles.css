@@ -12,9 +12,52 @@
   --green: #34d399;
   --yellow: #fbbf24;
   --red: #f87171;
+  /* abgeleitete Töne — im Hell-Modus separat überschrieben */
+  --primary-text: #04121f;
+  --danger-border: #5c2b2b;
+  --tag-border: #1b4a63;
+  --chip-active-bg: rgba(14, 165, 233, 0.08);
+  --thumb-bg: #060b14;
+  --thumb-btn-bg: rgba(11, 18, 32, 0.85);
+  --checker-a: #0d1526;
+  --checker-b: #0a101d;
+  --overlay: rgba(4, 8, 16, 0.7);
+  --shadow: rgba(0, 0, 0, 0.5);
   --mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
+
+/* Darstellung: data-theme wird von App.tsx (bzw. main.tsx beim Start) aus den
+   Einstellungen auf <html> gesetzt. Dark ist Default und bleibt unverändert. */
+html[data-theme='light'] {
+  --bg: #eef2f8;
+  --bg-panel: #ffffff;
+  --bg-raised: #e4eaf3;
+  --bg-hover: #d8e2ef;
+  --border: #c3cfe0;
+  --text: #16233a;
+  --text-dim: #46586f;
+  --text-faint: #7a8ca3;
+  --blue: #0284c7;
+  --blue-dim: #0369a1;
+  --green: #059669;
+  --yellow: #b45309;
+  --red: #dc2626;
+  --primary-text: #ffffff;
+  --danger-border: #f3b4b4;
+  --tag-border: #9fd0ea;
+  --chip-active-bg: rgba(2, 132, 199, 0.08);
+  --thumb-bg: #dfe6f0;
+  --thumb-btn-bg: rgba(255, 255, 255, 0.88);
+  --checker-a: #dfe6f0;
+  --checker-b: #d3dce9;
+  --overlay: rgba(22, 35, 58, 0.45);
+  --shadow: rgba(22, 35, 58, 0.22);
+}
+/* Favoriten-Stern liegt auf dem Vorschaubild — im Hell-Modus kräftiges Gelb statt Braun */
+html[data-theme='light'] .card .fav { color: #f59e0b; }
+/* weiße/helle Farbfelder im Editor auf hellem Panel abgrenzen */
+html[data-theme='light'] .colorbtn:not(.active) { border-color: var(--border); }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -49,11 +92,11 @@ button:disabled { opacity: 0.45; cursor: default; }
 button.primary {
   background: var(--blue-dim);
   border-color: var(--blue-dim);
-  color: #04121f;
+  color: var(--primary-text);
   font-weight: 600;
 }
 button.primary:hover { background: var(--blue); border-color: var(--blue); }
-button.danger { color: var(--red); border-color: #5c2b2b; }
+button.danger { color: var(--red); border-color: var(--danger-border); }
 button.ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
 button.ghost:hover { color: var(--text); background: var(--bg-raised); }
 button.icon { padding: 4px 7px; line-height: 1; }
@@ -117,7 +160,7 @@ label.check input { width: auto; }
   padding: 4px 12px;
   font-size: 13px;
 }
-.chip.active { border-color: var(--blue-dim); color: var(--blue); background: rgba(14, 165, 233, 0.08); }
+.chip.active { border-color: var(--blue-dim); color: var(--blue); background: var(--chip-active-bg); }
 .filters .count { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--text-faint); }
 
 /* gallery */
@@ -151,7 +194,7 @@ label.check input { width: auto; }
 .card:hover { border-color: var(--blue-dim); }
 .card .thumbwrap {
   aspect-ratio: 16 / 10;
-  background: #060b14;
+  background: var(--thumb-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -174,7 +217,7 @@ label.check input { width: auto; }
   gap: 4px;
 }
 .card:hover .hoveractions { display: flex; }
-.card .hoveractions button { background: rgba(11, 18, 32, 0.85); }
+.card .hoveractions button { background: var(--thumb-btn-bg); }
 .card .info { padding: 8px 10px; }
 .card .name {
   font-size: 13px;
@@ -195,7 +238,7 @@ label.check input { width: auto; }
   font-size: 10.5px;
   font-family: var(--mono);
   color: var(--blue);
-  border: 1px solid #1b4a63;
+  border: 1px solid var(--tag-border);
   border-radius: 4px;
   padding: 1px 6px;
 }
@@ -209,14 +252,14 @@ label.check input { width: auto; }
   justify-content: center;
   overflow: auto;
   background:
-    repeating-conic-gradient(#0d1526 0% 25%, #0a101d 0% 50%) 0 0 / 24px 24px;
+    repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 24px 24px;
   position: relative;
   padding: 20px;
 }
 .editor canvas {
   max-width: 100%;
   max-height: 100%;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 40px var(--shadow);
   cursor: crosshair;
 }
 .editor .sidepanel {
@@ -280,7 +323,7 @@ label.check input { width: auto; }
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(4, 8, 16, 0.7);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -334,7 +377,7 @@ label.check input { width: auto; }
   padding: 8px 16px;
   border-radius: 8px;
   z-index: 100;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 24px var(--shadow);
   animation: toast-in 0.15s ease-out;
 }
 @keyframes toast-in {
@@ -378,7 +421,7 @@ kbd {
 .hlp-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(4, 8, 16, 0.72);
+  background: var(--overlay, rgba(4, 8, 16, 0.72));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -396,7 +439,7 @@ kbd {
   flex-direction: column;
   color: var(--text, #e2e8f0);
   overflow: hidden;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 60px var(--shadow, rgba(0, 0, 0, 0.5));
 }
 .hlp-head {
   display: flex;
@@ -465,7 +508,7 @@ kbd {
 .hlp-tut-nav .hlp-primary {
   background: var(--blue-dim, #0ea5e9);
   border-color: var(--blue-dim, #0ea5e9);
-  color: #04121f;
+  color: var(--primary-text, #04121f);
   font-weight: 600;
 }
 .hlp-tut-nav .hlp-primary:hover { background: var(--blue, #38bdf8); }
@@ -530,5 +573,5 @@ kbd {
   padding: 8px 14px;
   font-size: 13px;
   z-index: 50;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 30px var(--shadow);
 }

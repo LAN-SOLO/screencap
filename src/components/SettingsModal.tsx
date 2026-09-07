@@ -70,6 +70,14 @@ export function SettingsModal({
         </label>
 
         <label className="field">
+          <span>{t.themeLabel}</span>
+          <select value={s.theme} onChange={(e) => set('theme', e.target.value as Settings['theme'])}>
+            <option value="dark">{t.themeDark}</option>
+            <option value="light">{t.themeLight}</option>
+          </select>
+        </label>
+
+        <label className="field">
           <span>{t.libraryDir}</span>
           <div className="row2">
             <input

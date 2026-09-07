@@ -76,6 +76,13 @@ function linePoints(s: Shape): { x: number; y: number }[] {
 }
 
 const COLORS = ['#f87171', '#fbbf24', '#34d399', '#38bdf8', '#ffffff', '#111827'];
+
+/** UI-Chrome auf dem Canvas (Auswahlrahmen, Anfasser, Zuschnitt) folgt der
+ *  aktiven Palette; die Zeichenfarben oben sind Bildinhalt und bleiben fix. */
+function uiColor(name: string, fallback: string): string {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
 const WIDTHS = [2, 4, 8];
 
 function drawArrowHead(
@@ -519,16 +526,17 @@ export function Editor({
       const b = shapeBBox(s, ctx);
       const lw = Math.max(1.5, canvas.width / 800);
       const pad = lw * 3;
+      const accent = uiColor('--blue', '#38bdf8');
       ctx.save();
-      ctx.strokeStyle = '#38bdf8';
+      ctx.strokeStyle = accent;
       ctx.lineWidth = lw;
       ctx.setLineDash([6 * lw, 4 * lw]);
       ctx.strokeRect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2);
       ctx.setLineDash([]);
       const r = Math.max(4, canvas.width / 220);
       for (const h of shapeHandles(s, ctx)) {
-        ctx.fillStyle = h.kind === 'bend' ? '#ffffff' : '#38bdf8';
-        ctx.strokeStyle = h.kind === 'bend' ? '#38bdf8' : '#ffffff';
+        ctx.fillStyle = h.kind === 'bend' ? '#ffffff' : accent;
+        ctx.strokeStyle = h.kind === 'bend' ? accent : '#ffffff';
         ctx.beginPath();
         // bend handle is a circle so it reads as "different kind of drag"
         if (h.kind === 'bend') ctx.arc(h.x, h.y, r, 0, Math.PI * 2);
@@ -549,7 +557,7 @@ export function Editor({
       ctx.rect(0, 0, canvas.width, canvas.height);
       ctx.rect(x, y, w, h);
       ctx.fill('evenodd');
-      ctx.strokeStyle = '#38bdf8';
+      ctx.strokeStyle = uiColor('--blue', '#38bdf8');
       ctx.lineWidth = Math.max(2, canvas.width / 600);
       ctx.setLineDash([8, 6]);
       ctx.strokeRect(x, y, w, h);
