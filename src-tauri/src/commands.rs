@@ -65,6 +65,15 @@ pub async fn capture(
         .map_err(|e| e.to_string())?
 }
 
+/// Selection overlay (Windows region capture) reports the dragged rectangle
+/// — or `null` on Esc — back to the waiting `do_capture`.
+#[tauri::command]
+pub fn region_result(st: State<'_, AppState>, sel: Option<capture::RegionSel>) {
+    if let Some(tx) = st.region_tx.lock().unwrap().take() {
+        let _ = tx.send(sel);
+    }
+}
+
 // --- library ---
 
 #[tauri::command]

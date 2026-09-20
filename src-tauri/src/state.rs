@@ -1,11 +1,16 @@
+use crate::capture::RegionSel;
 use crate::settings::Settings;
 use screencap_core::Library;
 use std::path::PathBuf;
+use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 
 pub struct AppState {
     pub lib: Mutex<Library>,
     pub settings: Mutex<Settings>,
+    /// Set while a region capture waits for the selection overlay
+    /// (Windows); the `region_result` command reports through it.
+    pub region_tx: Mutex<Option<Sender<Option<RegionSel>>>>,
 }
 
 impl AppState {

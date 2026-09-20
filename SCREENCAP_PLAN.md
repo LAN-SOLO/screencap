@@ -8,7 +8,8 @@ Website: https://lan-solo.de/de/tools/screencap
 - `core/` (`screencap-core`) — reine Rust-Logik: Bibliotheks-Index (`index.json`
   im Ablage-Ordner), Suche/Tags/Favoriten, Disk-Sync. Unit-getestet.
 - `src-tauri/` — App-Schicht: Aufnahme über natives macOS `screencapture`
-  (Ausschnitt `-i`, Fenster `-i -W`, Bildschirm; Verzögerung `-T`),
+  (Ausschnitt `-i`, Fenster `-i -W`, Bildschirm; Verzögerung `-T`), unter
+  Windows über `xcap` + eigenes Auswahl-Overlay,
   Thumbnails, Tray, globale Shortcuts, Commands, Updater.
 - `src/` — React-UI: Galerie mit Filtern/Suche/Tags, Canvas-Editor
   (Stift, Linie, Pfeil, Rechteck, Ellipse, Text, Verpixeln, Zuschneiden,
@@ -38,7 +39,11 @@ Website: https://lan-solo.de/de/tools/screencap
   Speichern (Überschreiben oder Kopie), Metadaten-Panel (Name/Tags/Favorit).
 - [x] **Phase 5 — System-Integration:** Tray mit Aufnahme-Menü, globale
   Shortcuts (Cmd+Shift+7/8/9), Autostart, Schließen = Verstecken, Updater.
-- [ ] **Phase 6 — später:** Windows/Linux-Aufnahme, OCR (screencap framed),
+- [x] **Phase 6a — Windows-Aufnahme:** `xcap` (GDI) statt `screencapture` —
+  Bildschirm unter dem Cursor, Vordergrund-Fenster, Ausschnitt über ein eigenes
+  transparentes Overlay-Fenster (`region`, `RegionPicker.tsx`, Rückmeldung per
+  `region_result`). Linux weiterhin offen.
+- [ ] **Phase 6b — später:** Linux-Aufnahme (Portal), OCR (screencap framed),
   Quell-App/Fenstertitel-Metadaten, Schnellaktionen, Scroll-Capture.
 
 ## Shortcuts (Standard)

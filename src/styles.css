@@ -575,3 +575,69 @@ kbd {
   z-index: 50;
   box-shadow: 0 10px 30px var(--shadow);
 }
+
+/* ---------- region overlay (Windows region capture, own window) ---------- */
+html[data-window='region'],
+html[data-window='region'] body {
+  background: transparent;
+}
+.region-picker {
+  position: fixed;
+  inset: 0;
+  cursor: crosshair;
+  background: rgba(2, 6, 16, 0.28);
+  overflow: hidden;
+}
+.region-sel {
+  position: absolute;
+  border: 1px solid var(--blue);
+  background: transparent;
+  /* keep the selected area clear, dim everything else */
+  box-shadow: 0 0 0 100000px rgba(2, 6, 16, 0.28);
+  pointer-events: none;
+}
+.region-picker:has(.region-sel) {
+  background: transparent;
+}
+.region-size,
+.region-hint {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(11, 18, 32, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.region-hint {
+  left: 50%;
+  top: 24px;
+  transform: translateX(-50%);
+  color: var(--text-faint, #8b9bb4);
+}
+
+/* help language toggle (DE/EN) in the modal header — independent of the app language */
+.hlp-lang {
+  display: inline-flex;
+  border: 1px solid var(--border, #223252);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-right: 6px;
+}
+.hlp-lang-btn {
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--text-faint, #5c6f8c);
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.hlp-lang-btn + .hlp-lang-btn { border-left: 1px solid var(--border, #223252); }
+.hlp-lang-btn:hover { color: var(--text, #e2e8f0); }
+.hlp-lang-btn.active { color: var(--blue, #38bdf8); background: var(--bg-raised, rgba(56, 189, 248, 0.08)); }

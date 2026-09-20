@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "screencap main window",
-  "windows": ["main"],
+  "description": "screencap windows (main + region overlay)",
+  "windows": ["main", "region"],
   "permissions": [
     "core:default",
     "dialog:default",

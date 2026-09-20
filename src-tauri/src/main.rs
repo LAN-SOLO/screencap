@@ -127,6 +127,7 @@ fn main() {
             app.manage(AppState {
                 lib: Mutex::new(lib),
                 settings: Mutex::new(s.clone()),
+                region_tx: Mutex::new(None),
             });
             commands::sync_library_internal(&handle);
             build_tray(app, &s)?;
@@ -136,13 +137,18 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // main window: closing = hiding (tray app); the region overlay
+            // is transient and really closes
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
             commands::capture,
+            commands::region_result,
             commands::list_shots,
             commands::get_thumb,
             commands::get_image,

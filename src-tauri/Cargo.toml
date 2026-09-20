@@ -26,6 +26,10 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 base64 = "0.22"
 dirs = "6"
 
+# Windows has no `screencapture` — capture via xcap (GDI) instead
+[target.'cfg(target_os = "windows")'.dependencies]
+xcap = "0.9"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
