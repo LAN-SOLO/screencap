@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "region",
+  "description": "Windows region-capture overlay: only core APIs (it reports the selection via the region_result command).",
+  "windows": ["region"],
+  "permissions": [
+    "core:default"
+  ]
+}

@@ -1,11 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "screencap windows (main + region overlay)",
-  "windows": ["main", "region"],
+  "description": "screencap main window: core APIs, file/folder pickers (open) and native confirm dialogs (message). No opener/shell/fs access from the webview — revealing files runs in Rust.",
+  "windows": ["main"],
   "permissions": [
     "core:default",
-    "dialog:default",
-    "opener:default"
+    "dialog:allow-open",
+    "dialog:allow-message"
   ]
 }

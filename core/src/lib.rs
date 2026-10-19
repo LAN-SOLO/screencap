@@ -169,6 +169,28 @@ impl Library {
     }
 }
 
+/// A library file name must be a plain name inside the library folder — no
+/// path separators, no `.`/`..`, no drive/stream colon (Windows), no NUL.
+/// `index.json` is user-editable (and may live in a synced/shared folder),
+/// so every entry is checked before its name is joined onto the folder.
+pub fn is_safe_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\', ':', '\0'])
+        && name.trim() == name
+}
+
+/// Image files screencap manages (PNG/JPG). Hidden files (`.foo.png`, macOS
+/// `._foo.png` AppleDouble files on external drives) are ignored.
+pub fn is_library_image(name: &str) -> bool {
+    if name.starts_with('.') || !is_safe_file_name(name) {
+        return false;
+    }
+    let lower = name.to_lowercase();
+    lower.ends_with(".png") || lower.ends_with(".jpg") || lower.ends_with(".jpeg")
+}
+
 pub fn save_library(lib: &Library, path: &Path) -> Result<(), String> {
     let json = serde_json::to_vec_pretty(lib).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("tmp");
@@ -179,7 +201,28 @@ pub fn save_library(lib: &Library, path: &Path) -> Result<(), String> {
 
 pub fn load_library(path: &Path) -> Result<Library, String> {
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    serde_json::from_slice(&data).map_err(|e| e.to_string())
+    let mut lib: Library = serde_json::from_slice(&data).map_err(|e| e.to_string())?;
+    // never trust file names from disk: drop anything that could escape the folder
+    lib.shots.retain(|s| is_safe_file_name(&s.file));
+    Ok(lib)
+}
+
+/// Loads the index; a missing file yields an empty library. A corrupt file is
+/// moved aside as `index.corrupt-<timestamp>.json` (instead of being silently
+/// overwritten by the next save), then an empty library is started.
+pub fn load_library_or_recover(path: &Path) -> Library {
+    if !path.exists() {
+        return Library::default();
+    }
+    match load_library(path) {
+        Ok(lib) => lib,
+        Err(_) => {
+            let stamp = Utc::now().format("%Y%m%d-%H%M%S");
+            let backup = path.with_file_name(format!("index.corrupt-{stamp}.json"));
+            let _ = std::fs::rename(path, backup);
+            Library::default()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -259,6 +302,79 @@ mod tests {
         assert_eq!(loaded.shots.len(), 1);
         assert!(loaded.shots[0].favorite);
         assert_eq!(loaded.shots[0].kind, ShotKind::Edit);
+    }
+
+    #[test]
+    fn safe_file_names() {
+        assert!(is_safe_file_name("screencap-20260101-120000.png"));
+        assert!(is_safe_file_name("Bild mit Leerzeichen.jpg"));
+        for bad in [
+            "", ".", "..", "../x.png", "a/b.png", "..\\x.png", "C:x.png", "C:\\x.png",
+            "x.png:stream", " x.png", "x\0.png",
+        ] {
+            assert!(!is_safe_file_name(bad), "{bad:?} must be rejected");
+        }
+    }
+
+    #[test]
+    fn library_image_filter() {
+        assert!(is_library_image("a.png"));
+        assert!(is_library_image("B.JPG"));
+        assert!(is_library_image("c.jpeg"));
+        assert!(!is_library_image("index.json"));
+        assert!(!is_library_image("d.webp"));
+        assert!(!is_library_image("._a.png"));
+        assert!(!is_library_image(".hidden.png"));
+    }
+
+    #[test]
+    fn load_drops_traversal_entries() {
+        let mut lib = Library::default();
+        lib.add("ok.png", ShotKind::Region, 1, 1, 1);
+        lib.add("evil.png", ShotKind::Region, 1, 1, 1);
+        lib.shots[0].file = "../../.ssh/id_rsa".into();
+        let dir = std::env::temp_dir().join(format!("screencap-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("index.json");
+        save_library(&lib, &path).unwrap();
+        let loaded = load_library(&path).unwrap();
+        assert_eq!(loaded.shots.len(), 1);
+        assert_eq!(loaded.shots[0].file, "ok.png");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_index_is_moved_aside() {
+        let dir = std::env::temp_dir().join(format!("screencap-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("index.json");
+        assert!(load_library_or_recover(&path).shots.is_empty()); // missing = empty
+        std::fs::write(&path, b"{ not json").unwrap();
+        let lib = load_library_or_recover(&path);
+        assert!(lib.shots.is_empty());
+        assert!(!path.exists());
+        let backups: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with("index.corrupt-"))
+            .collect();
+        assert_eq!(backups.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_overwrites_existing_index() {
+        // Windows: rename onto an existing file must replace it
+        let dir = std::env::temp_dir().join(format!("screencap-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("index.json");
+        let mut lib = Library::default();
+        lib.add("a.png", ShotKind::Region, 1, 1, 1);
+        save_library(&lib, &path).unwrap();
+        lib.add("b.png", ShotKind::Region, 1, 1, 1);
+        save_library(&lib, &path).unwrap();
+        assert_eq!(load_library(&path).unwrap().shots.len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
