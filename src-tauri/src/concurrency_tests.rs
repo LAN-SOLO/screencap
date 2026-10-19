@@ -224,6 +224,12 @@ fn read_only_folder_reports_instead_of_losing_silently() {
         sync_library_internal(&st).unwrap();
         let id = st.lib.lock().unwrap().shots[0].id;
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        if std::fs::write(dir.join(".probe"), b"x").is_ok() {
+            // running as root: permissions aren't enforced, nothing to test
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
         let tag_err = set_tags_op(&st, id, &["a".into()]).unwrap_err();
         assert!(tag_err.contains("index.json"), "{tag_err}");
         let save_err = save_edit_op(&st, id, &png_b64(8, 2), "copy").unwrap_err();
