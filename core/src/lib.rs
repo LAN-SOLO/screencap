@@ -173,12 +173,101 @@ impl Library {
 /// path separators, no `.`/`..`, no drive/stream colon (Windows), no NUL.
 /// `index.json` is user-editable (and may live in a synced/shared folder),
 /// so every entry is checked before its name is joined onto the folder.
+/// On Windows additionally everything the file system can't hold or treats
+/// specially: `< > " | ? *`, control characters, a trailing dot and the
+/// reserved device names (`CON`, `NUL.png`, `COM1.jpg` …).
 pub fn is_safe_file_name(name: &str) -> bool {
-    !name.is_empty()
+    is_safe_file_name_for(name, cfg!(windows))
+}
+
+/// [`is_safe_file_name`] with the Windows rules switchable (for tests).
+pub fn is_safe_file_name_for(name: &str, windows: bool) -> bool {
+    let basic = !name.is_empty()
         && name != "."
         && name != ".."
         && !name.contains(['/', '\\', ':', '\0'])
-        && name.trim() == name
+        && name.trim() == name;
+    if !basic || !windows {
+        return basic;
+    }
+    !name.contains(['<', '>', '"', '|', '?', '*'])
+        && !name.chars().any(|c| c.is_control())
+        && !name.ends_with('.')
+        && !is_reserved_device_name(name)
+}
+
+/// Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`,
+/// `LPT1`–`LPT9`) — reserved with any extension and in every folder.
+pub fn is_reserved_device_name(name: &str) -> bool {
+    let base = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((base.starts_with("COM") || base.starts_with("LPT"))
+            && base.len() == 4
+            && matches!(base.as_bytes()[3], b'1'..=b'9'))
+}
+
+/// Turns any file stem (e.g. of an imported file) into one that is valid on
+/// macOS *and* Windows, so the library folder stays portable: characters
+/// Windows rejects become `-`, leading dots (hidden) and trailing dots/spaces
+/// are dropped, device names get a `_` prefix, the length is capped.
+pub fn sanitize_stem(stem: &str, fallback: &str) -> String {
+    let mapped: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let trimmed = mapped.trim().trim_start_matches('.').trim_end_matches(['.', ' ']).trim();
+    // 120 characters keep `<stem>-edit-12.png` well inside every limit
+    let mut out: String = trimmed.chars().take(120).collect();
+    out = out.trim_end_matches(['.', ' ']).to_string();
+    if out.is_empty() {
+        return fallback.to_string();
+    }
+    if is_reserved_device_name(&out) {
+        out.insert(0, '_');
+    }
+    out
+}
+
+/// Removes a leading UTF-8 byte order mark — Windows Notepad writes one when
+/// a user edits `index.json` / `settings.json` by hand.
+pub fn strip_bom(data: &[u8]) -> &[u8] {
+    data.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(data)
+}
+
+/// `rename` that replaces the target and, on Windows, retries for a moment
+/// when another process (virus scanner, indexer, OneDrive, an image viewer)
+/// briefly holds the target open — the classic sharing violation that makes
+/// a single `MoveFileEx` fail with "access denied" / "used by another process".
+pub fn rename_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    retry_io(|| std::fs::rename(from, to))
+}
+
+/// Retries an I/O operation on transient Windows locking errors
+/// (ERROR_ACCESS_DENIED 5, ERROR_SHARING_VIOLATION 32, ERROR_LOCK_VIOLATION 33),
+/// ~1.5 s in total. Other errors (and every error on other systems) return
+/// immediately.
+pub fn retry_io<T>(mut op: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    let mut attempt = 0u64;
+    loop {
+        match op() {
+            Ok(v) => return Ok(v),
+            Err(e) if attempt < 8 && cfg!(windows) && is_transient_lock(&e) => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(25 * attempt * attempt / 2 + 20));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+fn is_transient_lock(e: &std::io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33))
 }
 
 /// Image files screencap manages (PNG/JPG). Hidden files (`.foo.png`, macOS
@@ -195,13 +284,16 @@ pub fn save_library(lib: &Library, path: &Path) -> Result<(), String> {
     let json = serde_json::to_vec_pretty(lib).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, &json).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    rename_replace(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })?;
     Ok(())
 }
 
 pub fn load_library(path: &Path) -> Result<Library, String> {
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    let mut lib: Library = serde_json::from_slice(&data).map_err(|e| e.to_string())?;
+    let mut lib: Library = serde_json::from_slice(strip_bom(&data)).map_err(|e| e.to_string())?;
     // never trust file names from disk: drop anything that could escape the folder
     lib.shots.retain(|s| is_safe_file_name(&s.file));
     Ok(lib)
@@ -217,7 +309,8 @@ pub fn load_library_or_recover(path: &Path) -> Library {
     match load_library(path) {
         Ok(lib) => lib,
         Err(_) => {
-            let stamp = Utc::now().format("%Y%m%d-%H%M%S");
+            // local time, like the capture file names the user sees
+            let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
             let backup = path.with_file_name(format!("index.corrupt-{stamp}.json"));
             let _ = std::fs::rename(path, backup);
             Library::default()
@@ -314,6 +407,77 @@ mod tests {
         ] {
             assert!(!is_safe_file_name(bad), "{bad:?} must be rejected");
         }
+    }
+
+    #[test]
+    fn windows_rules_for_index_names() {
+        for bad in [
+            "CON", "con.png", "NUL.jpg", "Aux.png", "COM1.png", "lpt9.jpg", "a<b.png", "a>b.png",
+            "a\"b.png", "a|b.png", "a?.png", "*.png", "x.png.", "tab\there.png",
+        ] {
+            assert!(!is_safe_file_name_for(bad, true), "{bad:?} must be rejected on Windows");
+        }
+        for ok in ["console.png", "COM10.png", "COM0.png", "Bild Ä ö ü ß.png", "a-b_c (1).jpg", "nullable.png"] {
+            assert!(is_safe_file_name_for(ok, true), "{ok:?} is fine on Windows");
+        }
+        // macOS keeps accepting what its file system can hold
+        assert!(is_safe_file_name_for("a?b.png", false));
+        assert!(is_safe_file_name_for("CON.png", false));
+    }
+
+    #[test]
+    fn sanitized_stems_are_portable() {
+        assert_eq!(sanitize_stem("Bericht: Q1/Q2", "import"), "Bericht- Q1-Q2");
+        assert_eq!(sanitize_stem("a*b?c\"d<e>f|g", "import"), "a-b-c-d-e-f-g");
+        assert_eq!(sanitize_stem("...hidden", "import"), "hidden");
+        assert_eq!(sanitize_stem("trailing. . ", "import"), "trailing");
+        assert_eq!(sanitize_stem("CON", "import"), "_CON");
+        assert_eq!(sanitize_stem("nul", "import"), "_nul");
+        assert_eq!(sanitize_stem("   ", "import"), "import");
+        assert_eq!(sanitize_stem("..", "import"), "import");
+        assert_eq!(sanitize_stem("Grüße aus Köln", "import"), "Grüße aus Köln");
+        assert_eq!(sanitize_stem(&"x".repeat(300), "import").chars().count(), 120);
+        for s in ["Bericht: Q1/Q2", "CON", "...hidden", "a\tb"] {
+            let out = format!("{}.png", sanitize_stem(s, "import"));
+            assert!(is_safe_file_name_for(&out, true), "{out:?}");
+        }
+    }
+
+    #[test]
+    fn index_with_bom_loads() {
+        let mut lib = Library::default();
+        lib.add("a.png", ShotKind::Region, 1, 1, 1);
+        let dir = std::env::temp_dir().join(format!("screencap-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("index.json");
+        let mut data = b"\xEF\xBB\xBF".to_vec();
+        data.extend(serde_json::to_vec(&lib).unwrap());
+        std::fs::write(&path, data).unwrap();
+        let loaded = load_library_or_recover(&path);
+        assert_eq!(loaded.shots.len(), 1, "BOM must not count as a corrupt index");
+        assert!(path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retry_io_gives_up_on_permanent_errors() {
+        let mut calls = 0;
+        let r: std::io::Result<()> = retry_io(|| {
+            calls += 1;
+            Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+        });
+        assert!(r.is_err());
+        assert_eq!(calls, 1);
+        let mut n = 0;
+        let r = retry_io(|| {
+            n += 1;
+            if n < 3 && cfg!(windows) {
+                Err(std::io::Error::from_raw_os_error(32))
+            } else {
+                Ok(n)
+            }
+        });
+        assert!(r.is_ok());
     }
 
     #[test]

@@ -128,7 +128,7 @@ prüfen ist.
 - Bearbeitungen werden immer als PNG gespeichert.
 - WebP wird nicht unterstützt.
 - Dateinamen mit `:` in der Ablage werden ignoriert (unter Windows ohnehin unzulässig).
-- `cargo check --target x86_64-pc-windows-msvc` lässt sich auf dem Mac nicht ausführen (C-Build von `ring`); der Windows-Code ist statisch geprüft und wird in der CI gebaut.
+- Windows-Code wird auf dem Mac per `cargo clippy --target x86_64-pc-windows-msvc` mit Stub-Werkzeugen typgeprüft (kein Linken); gebaut und getestet wird er in der CI.
 - Kein In-App-Changelog; Release-Notes stehen im Update-Dialog (aus den Commits).
 
 ## 5. Manuelle Test-Checkliste
@@ -228,3 +228,59 @@ Typprüfung abgesichert, nicht im Browser-Harness wiederholt.
 theoretisch bei byte-gleich großem Überschreiben veralten (nur bis Neustart);
 JPG→PNG-Überschreiben unter Windows bei gesperrter JPG lässt die alte Datei
 liegen (wird beim nächsten Abgleich als Import aufgenommen).
+
+## 8. Runde 2 (2026-10-20)
+
+Basis `5e927e3`. Abgleich mit den Fehlermustern L1–L13 aus Runde 1 der anderen
+Apps, alle Treffer behoben. Neue Tests: Core 13 → 17, App 17 → 23; dazu ein
+UI-Durchlauf im Headless-Chromium (20 Funktions- + 3 Windows- + 5 Layout-Szenarien,
+Mock-IPC bildet das echte Dialog-Plugin nach, `window.confirm` ist wie in Tauri
+ein Stub, der wirft).
+
+| Muster | Befund in screencap | Status |
+|---|---|---|
+| L1 `window.confirm/alert` | nicht verwendet; Löschen/Verwerfen nutzen `confirm()` des Plugins — jetzt über `src/dialog.ts` mit Knöpfen in der UI-Sprache („Löschen“/„Abbrechen“, „Verwerfen“/„Abbrechen“), `kind: warning`; ein Dialogfehler zählt als „Nein“ | U |
+| L2 Backend-Fehler roh | rohe `io`/`xcap`/`arboard`/Updater-Texte ohne Kontext (z. B. „Overlay: …“, „screencapture: …“, Lesefehler, Speichern, Zwischenablage, Ordner öffnen, Autostart) → mit Präfix in der UI-Sprache | A (Teil), S |
+| L3 Erststart-Sprache | bereits `navigator.language`; Overlay-Hinweis war fest zweisprachig → folgt jetzt der Einstellung | U |
+| L4 BOM | `index.json` mit UTF-8-BOM (Windows-Editor) galt als kaputt und wurde beiseitegelegt; `settings.json` mit BOM fiel still auf Standardwerte zurück → BOM wird toleriert | A |
+| L5 Windows-Dateisystem | Rename (Bild, Index, Settings, Thumbnail) und Löschen wiederholen bei Sperrfehlern 5/32/33 (~1,5 s); `Shot.PNG` überschreiben wurde wegen Groß-/Kleinschreibung zu `Shot-2.png`; Import übernahm `: * ? " < > |` und Gerätenamen (`CON.png`) → portabel bereinigt; Index-Namen werden unter Windows zusätzlich auf diese Zeichen, Steuerzeichen, Punkt am Ende und Gerätenamen geprüft; Ablage-Ordner `D:` → `D:\`, `~` wird aufgelöst, relative Pfade abgelehnt | A |
+| L6 Strg/⌘ | deutsche Windows-Hinweise und Hilfe sagten „Ctrl“ → „Strg“; Kürzel-Schreibweise `CmdOrCtrl` erklärt | U (Windows-UA) |
+| L7 Remote-Inhalte | keine (Update-Notizen als Text, CSP ohne Fremdquellen) | ok |
+| L8 Hauptthread | alle schweren Befehle (`get_image`, `get_thumb`, `save_edit`, `import_files`, `copy_shot`, `delete_shot`, `set_settings` inkl. Ordnerwechsel, `sync_library`, Index-Schreiben) waren synchrone Tauri-Befehle = Hauptthread → jetzt `async` + `spawn_blocking`; Sync erzeugt keine Thumbnails mehr (lazy, eins nach dem anderen); `save_edit` decodiert das PNG nur noch einmal | A (Logik), S (Threading) |
+| L9 Laufende Aufgaben | Doppelklick „Als Kopie speichern“ legte zwei Kopien an; Speichern + sofort „Zurück“ öffnete den Editor wieder; zweimal „Installieren“ (Banner + Dialog) startete zwei Downloads; Ordnerwechsel während einer Aufnahme legte den Index-Eintrag im falschen Ordner an → alle gesperrt | U, S |
+| L10 Zeit | Editor-Datum in Systemsprache statt UI-Sprache; `index.corrupt-<Zeit>` in UTC → lokale Zeit | U |
+| L11 Fehler sichtbar | Umbenennen/Tags/Index-Schreibfehler/Bild-Ladefehler/Update-Installation/Zwischenablage nach Aufnahme wurden verschluckt; Fehler-Toasts verschwanden nach 1,5 s → Fehler rot, 8 s, per Klick schließbar | U |
+| L12 Texte | Details-Labels `px/file/size/date`, Dateifilter „Images“, Overlay-Hinweis fest → i18n; Hilfe DE/EN um alle Änderungen ergänzt; Esc schließt Hilfe und Einstellungen (Hilfe fängt Esc/Entf ab, statt dass der Editor zur Bibliothek springt bzw. ein Objekt löscht) | U |
+| L13 Updater | Fehler der Installation wurden verschluckt, Prüf-Fehler ohne Grund → Grund in der UI-Sprache; Pubkey/HTTPS-Endpoint unverändert; Vergleich übernimmt der Updater (SemVer, 1.0.0) | U, M |
+
+**Weitere Funde:**
+
+- Standard-Verzögerung mit krummem Wert (z. B. 7 s): das Dropdown zeigte „sofort“, aufgenommen wurde mit 7 s → Wert erscheint als eigener Eintrag.
+- Update-Banner schwebte über der Editor-Werkzeugleiste und dem Einstellungen-Dialog (bei 860 px Breite verdeckte es Werkzeuge) → im Fluss unter der Kopfzeile.
+- „Wählen …“ brach im Einstellungen-Dialog um.
+- JPG→PNG-Überschreiben bei kurz gesperrter JPG: Löschen wird jetzt wiederholt (Rest-Risiko bei dauerhaft geöffneter Datei bleibt, siehe unten).
+
+**Layout geprüft** bei 860×560 (Mindestgröße), DE/EN × Dunkel/Hell: Bibliothek,
+langer Fehler-Toast, Editor, Hilfe, Einstellungen, Auswahl-Overlay — kein
+horizontaler Überlauf, keine abgeschnittenen Knöpfe (Screenshots gesichtet).
+
+**Testlauf:** `cargo test --workspace` 17 + 23 grün; `cargo clippy --workspace
+--all-targets` 0 Warnungen auf macOS und für `x86_64-pc-windows-msvc`; `pnpm build`
+fehlerfrei; `pnpm audit` ohne Befund; `cargo audit` unverändert (zip 4.6.1 über den
+Updater — auch `tauri-plugin-updater` 2.14 hängt noch an zip 4, kein Update möglich —
+sowie Unmaintained-Hinweise, neu `zbus_names`/`zvariant` nur Linux).
+
+**Nur auf echter Hardware prüfbar (zusätzlich zur Checkliste in Abschnitt 5):**
+
+- [ ] Windows: Bild in der Windows-Fotoanzeige offen lassen, im Editor „Speichern“ → klappt nach kurzer Wiederholung bzw. meldet den Fehler
+- [ ] Windows: Löschen einer kurz gesperrten Datei (OneDrive-Ordner) → gelingt ohne Meldung
+- [ ] Beide: Dialoge zeigen „Löschen“/„Abbrechen“ bzw. „Verwerfen“/„Abbrechen“, Esc = Abbrechen (Windows: TaskDialog)
+- [ ] Beide: Editor mit 5K-Aufnahme öffnen/speichern — Fenster bleibt bedienbar (kein „Keine Rückmeldung“ / Beachball)
+- [ ] Beide: Ablage-Ordner mit vielen fremden Bildern wählen → Wechsel sofort, Thumbnails erscheinen nach und nach
+- [ ] Beide: Ablage-Ordner schreibgeschützt → Tag setzen meldet „Bibliothek nicht gespeichert“
+- [ ] Windows: Ablage-Ordner „D:“ eintippen → wird zu `D:\`, Aufnahmen landen dort
+- [ ] Update-Installation mit abgebrochenem Download → Meldung mit Grund, Knopf wieder aktiv
+
+**Weiterhin offen:** zip-Advisories (upstream); dauerhaft gesperrte JPG beim
+JPG→PNG-Überschreiben bleibt liegen und wird beim nächsten Abgleich als Import
+aufgenommen; Thumbnail-Cache-Schlüssel (siehe Abschnitt 7).

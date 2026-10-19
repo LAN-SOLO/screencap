@@ -18,6 +18,8 @@ pub struct AppState {
     pub first_run: bool,
     /// A capture is running (one at a time).
     pub capturing: AtomicBool,
+    /// An update download/install is running (one at a time).
+    pub updating: AtomicBool,
 }
 
 impl AppState {
@@ -37,9 +39,18 @@ impl AppState {
         dir
     }
 
-    pub fn persist(&self) {
+    /// Writes index.json. A failure (read-only or vanished folder, file
+    /// locked) is reported — otherwise names/tags/favorites would silently be
+    /// lost at the next start.
+    pub fn persist(&self) -> Result<(), String> {
+        let path = self.index_path();
         let lib = self.lib.lock().unwrap();
-        let _ = screencap_core::save_library(&lib, &self.index_path());
+        screencap_core::save_library(&lib, &path).map_err(|e| {
+            crate::settings::tr(
+                format!("Bibliothek nicht gespeichert (index.json): {e}"),
+                format!("Library not saved (index.json): {e}"),
+            )
+        })
     }
 
     /// Image files (PNG/JPG, regular files only — no symlinked folders)

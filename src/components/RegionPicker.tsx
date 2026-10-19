@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { api } from '../api';
+import { dicts, Lang } from '../i18n';
+import { systemLang } from '../platform';
 
 // Auswahl-Overlay für die Ausschnitt-Aufnahme unter Windows: eigenes,
 // transparentes Vollbild-Fenster („region“), das den gezogenen Bereich in
@@ -19,6 +22,14 @@ export function RegionPicker() {
   const [start, setStart] = useState<Pt | null>(null);
   const [cur, setCur] = useState<Pt | null>(null);
   const [done, setDone] = useState(false);
+  // Hinweistext in der eingestellten Sprache (bis die Settings da sind: System)
+  const [lang, setLang] = useState<Lang>(systemLang());
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((s) => setLang(s.language === 'de' ? 'de' : 'en'))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -87,7 +98,7 @@ export function RegionPicker() {
           </div>
         </>
       ) : (
-        <div className="region-hint">// Bereich ziehen · Esc = abbrechen &nbsp;|&nbsp; drag a region · Esc = cancel</div>
+        <div className="region-hint">{dicts[lang].regionHint}</div>
       )}
     </div>
   );

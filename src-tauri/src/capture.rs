@@ -15,9 +15,22 @@ pub const THUMB_MAX: u32 = 512;
 /// (the UI falls back to the full image).
 pub fn make_thumb(src: &Path, thumb_path: &Path) {
     if let Ok(img) = image::open(src) {
-        let thumb = img.thumbnail(THUMB_MAX, THUMB_MAX);
-        let _ = thumb.save_with_format(thumb_path, image::ImageFormat::Png);
+        write_thumb(&img, thumb_path);
     }
+}
+
+/// Scales an already decoded image down and writes the thumbnail via temp
+/// file + rename — `get_thumb` may read the same thumbnail concurrently and
+/// must never see a half-written PNG.
+pub fn write_thumb(img: &image::DynamicImage, thumb_path: &Path) {
+    let thumb = img.thumbnail(THUMB_MAX, THUMB_MAX);
+    let tmp = thumb_path.with_extension(format!("{}.tmp", Uuid::new_v4().simple()));
+    if thumb.save_with_format(&tmp, image::ImageFormat::Png).is_ok()
+        && screencap_core::rename_replace(&tmp, thumb_path).is_ok()
+    {
+        return;
+    }
+    let _ = std::fs::remove_file(&tmp);
 }
 
 pub fn unique_file_name(dir: &Path, stem: &str, ext: &str) -> String {
@@ -31,15 +44,25 @@ pub fn unique_file_name(dir: &Path, stem: &str, ext: &str) -> String {
 }
 
 pub fn copy_image_to_clipboard(path: &Path) -> Result<(), String> {
-    let img = image::open(path).map_err(|e| e.to_string())?.to_rgba8();
+    let img = image::open(path)
+        .map_err(|e| {
+            crate::settings::tr(format!("Bild nicht lesbar: {e}"), format!("Cannot read image: {e}"))
+        })?
+        .to_rgba8();
     let (w, h) = img.dimensions();
     let data = arboard::ImageData {
         width: w as usize,
         height: h as usize,
         bytes: std::borrow::Cow::Owned(img.into_raw()),
     };
-    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    cb.set_image(data).map_err(|e| e.to_string())
+    let clip_err = |e: arboard::Error| {
+        crate::settings::tr(
+            format!("Zwischenablage nicht verfügbar: {e}"),
+            format!("Clipboard not available: {e}"),
+        )
+    };
+    let mut cb = arboard::Clipboard::new().map_err(clip_err)?;
+    cb.set_image(data).map_err(clip_err)
 }
 
 #[cfg(target_os = "macos")]
@@ -70,7 +93,12 @@ fn run_screencapture(
     }
     cmd.arg("-t").arg(format);
     cmd.arg(target);
-    let status = cmd.status().map_err(|e| format!("screencapture: {e}"))?;
+    let status = cmd.status().map_err(|e| {
+        crate::settings::tr(
+            format!("screencapture ließ sich nicht starten: {e}"),
+            format!("Could not start screencapture: {e}"),
+        )
+    })?;
     if !status.success() {
         return Err(crate::settings::tr(
             "screencapture meldete einen Fehler",
@@ -89,6 +117,13 @@ pub struct RegionSel {
     pub y: u32,
     pub w: u32,
     pub h: u32,
+}
+
+/// Error from the Windows capture backend (xcap / image encoding), prefixed
+/// in the UI language — xcap's own messages are English only.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn cap_err(e: impl std::fmt::Display) -> String {
+    crate::settings::tr(format!("Aufnahme fehlgeschlagen: {e}"), format!("Capture failed: {e}"))
 }
 
 /// Windows: no system screenshot tool to drive, so capture via `xcap` — the
@@ -118,7 +153,7 @@ fn run_screencapture(
                 return Ok(m);
             }
         }
-        let all = xcap::Monitor::all().map_err(|e| e.to_string())?;
+        let all = xcap::Monitor::all().map_err(cap_err)?;
         all.iter()
             .find(|m| m.is_primary().unwrap_or(false))
             .cloned()
@@ -131,31 +166,31 @@ fn run_screencapture(
             wait(delay);
             monitor_under_cursor()?
                 .capture_image()
-                .map_err(|e| e.to_string())?
+                .map_err(cap_err)?
         }
         ShotKind::Window => {
             wait(delay);
             let own_pid = std::process::id();
-            let windows = xcap::Window::all().map_err(|e| e.to_string())?;
+            let windows = xcap::Window::all().map_err(cap_err)?;
             let win = windows
                 .into_iter()
                 .filter(|w| w.pid().map(|p| p != own_pid).unwrap_or(true))
                 .filter(|w| !w.is_minimized().unwrap_or(false))
                 .find(|w| w.is_focused().unwrap_or(false))
                 .ok_or_else(|| crate::settings::tr("Kein Fenster im Vordergrund", "No window in the foreground"))?;
-            win.capture_image().map_err(|e| e.to_string())?
+            win.capture_image().map_err(cap_err)?
         }
         _ => {
             // region: transparent overlay on the monitor under the cursor,
             // the frontend reports the dragged rectangle via `region_result`
             let monitor = monitor_under_cursor()?;
             let (mx, my) = (
-                monitor.x().map_err(|e| e.to_string())?,
-                monitor.y().map_err(|e| e.to_string())?,
+                monitor.x().map_err(cap_err)?,
+                monitor.y().map_err(cap_err)?,
             );
             let (mw, mh) = (
-                monitor.width().map_err(|e| e.to_string())?,
-                monitor.height().map_err(|e| e.to_string())?,
+                monitor.width().map_err(cap_err)?,
+                monitor.height().map_err(cap_err)?,
             );
             let st = app.state::<AppState>();
             let (tx, rx) = std::sync::mpsc::channel::<Option<RegionSel>>();
@@ -173,7 +208,12 @@ fn run_screencapture(
                 .shadow(false)
                 .visible(false)
                 .build()
-                .map_err(|e| format!("Overlay: {e}"))?;
+                .map_err(|e| {
+                    crate::settings::tr(
+                        format!("Auswahl-Overlay ließ sich nicht öffnen: {e}"),
+                        format!("Could not open the selection overlay: {e}"),
+                    )
+                })?;
             let _ = overlay.set_position(PhysicalPosition::new(mx, my));
             let _ = overlay.set_size(PhysicalSize::new(mw, mh));
             let _ = overlay.show();
@@ -194,7 +234,7 @@ fn run_screencapture(
             }
             monitor
                 .capture_region(sel.x, sel.y, w, h)
-                .map_err(|e| e.to_string())?
+                .map_err(cap_err)?
         }
     };
 
@@ -203,11 +243,11 @@ fn run_screencapture(
         dyn_img
             .to_rgb8()
             .save_with_format(target, image::ImageFormat::Jpeg)
-            .map_err(|e| e.to_string())
+            .map_err(cap_err)
     } else {
         dyn_img
             .save_with_format(target, image::ImageFormat::Png)
-            .map_err(|e| e.to_string())
+            .map_err(cap_err)
     }
 }
 
@@ -319,10 +359,15 @@ pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result
         lib.add(&file, kind, width, height, size_bytes)
     };
     make_thumb(&target, &st.thumbs_dir().join(format!("{id}.png")));
-    st.persist();
+    // the capture itself worked — report follow-up problems, don't fail it
+    if let Err(e) = st.persist() {
+        let _ = app.emit("capture-error", e);
+    }
     let _ = app.emit("library-changed", ());
     if copy_after {
-        let _ = copy_image_to_clipboard(&target);
+        if let Err(e) = copy_image_to_clipboard(&target) {
+            let _ = app.emit("capture-error", e);
+        }
     }
     if open_editor {
         let _ = app.emit("open-editor", id);
@@ -386,6 +431,11 @@ mod tests {
         make_thumb(&src, &thumb);
         let (w, h) = image::image_dimensions(&thumb).unwrap();
         assert_eq!((w, h), (THUMB_MAX, 128));
+        // written via temp file + rename: nothing else left behind
+        make_thumb(&src, &thumb);
+        let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        names.sort();
+        assert_eq!(names, vec!["big.png", "t.png"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

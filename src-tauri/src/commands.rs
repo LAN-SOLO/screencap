@@ -80,6 +80,27 @@ pub fn region_result(st: State<'_, AppState>, sel: Option<capture::RegionSel>) {
 
 // --- library ---
 
+/// Runs blocking work (image decoding, base64 of multi-MB files, disk I/O
+/// with Windows lock retries, clipboard) on the blocking pool. Synchronous
+/// Tauri commands run on the main thread and would freeze the window.
+async fn blocking<T: Send + 'static>(
+    app: AppHandle,
+    f: impl FnOnce(&AppHandle) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || f(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn shot_file(st: &AppState, id: Uuid) -> Result<String, String> {
+    let lib = st.lib.lock().unwrap();
+    Ok(lib.get(id).ok_or_else(unknown_shot)?.file.clone())
+}
+
+fn read_err(file: &str, e: std::io::Error) -> String {
+    tr(format!("„{file}“ nicht lesbar: {e}"), format!("Cannot read “{file}”: {e}"))
+}
+
 #[tauri::command]
 pub fn list_shots(st: State<'_, AppState>, query: String, filter: Filter) -> Vec<ShotDto> {
     let lib = st.lib.lock().unwrap();
@@ -87,101 +108,126 @@ pub fn list_shots(st: State<'_, AppState>, query: String, filter: Filter) -> Vec
 }
 
 #[tauri::command]
-pub fn get_thumb(st: State<'_, AppState>, id: Uuid) -> Result<String, String> {
-    let thumb_path = st.thumbs_dir().join(format!("{id}.png"));
-    if !thumb_path.exists() {
-        let file = {
-            let lib = st.lib.lock().unwrap();
-            lib.get(id).ok_or_else(unknown_shot)?.file.clone()
-        };
-        make_thumb(&st.lib_dir().join(&file), &thumb_path);
-    }
-    let data = std::fs::read(&thumb_path).map_err(|e| e.to_string())?;
-    Ok(format!("data:image/png;base64,{}", b64().encode(data)))
-}
-
-#[tauri::command]
-pub fn get_image(st: State<'_, AppState>, id: Uuid) -> Result<String, String> {
-    let file = {
-        let lib = st.lib.lock().unwrap();
-        lib.get(id).ok_or_else(unknown_shot)?.file.clone()
-    };
-    let data = std::fs::read(st.lib_dir().join(&file)).map_err(|e| e.to_string())?;
-    Ok(format!("data:{};base64,{}", mime_for(&file), b64().encode(data)))
-}
-
-#[tauri::command]
-pub fn rename_shot(app: AppHandle, st: State<'_, AppState>, id: Uuid, name: String) -> Result<(), String> {
-    if !st.lib.lock().unwrap().rename(id, &name) {
-        return Err(tr("Name darf nicht leer sein", "Name must not be empty"));
-    }
-    st.persist();
-    let _ = app.emit("library-changed", ());
-    Ok(())
-}
-
-#[tauri::command]
-pub fn set_tags(app: AppHandle, st: State<'_, AppState>, id: Uuid, tags: Vec<String>) {
-    st.lib.lock().unwrap().set_tags(id, &tags);
-    st.persist();
-    let _ = app.emit("library-changed", ());
-}
-
-#[tauri::command]
-pub fn set_favorite(app: AppHandle, st: State<'_, AppState>, id: Uuid, favorite: bool) {
-    st.lib.lock().unwrap().set_favorite(id, favorite);
-    st.persist();
-    let _ = app.emit("library-changed", ());
-}
-
-#[tauri::command]
-pub fn delete_shot(app: AppHandle, st: State<'_, AppState>, id: Uuid) -> Result<(), String> {
-    let file = {
-        let lib = st.lib.lock().unwrap();
-        lib.get(id).ok_or_else(unknown_shot)?.file.clone()
-    };
-    let path = st.lib_dir().join(&file);
-    // Windows: a file another program holds open can't be deleted — keep the
-    // index entry then, otherwise the next sync would re-adopt it as import
-    if let Err(e) = std::fs::remove_file(&path) {
-        if path.exists() {
-            return Err(tr(
-                format!("Datei konnte nicht gelöscht werden: {e}"),
-                format!("File could not be deleted: {e}"),
-            ));
+pub async fn get_thumb(app: AppHandle, id: Uuid) -> Result<String, String> {
+    blocking(app, move |app| {
+        let st = app.state::<AppState>();
+        let thumb_path = st.thumbs_dir().join(format!("{id}.png"));
+        if !thumb_path.exists() {
+            // one thumbnail at a time: a freshly adopted folder with hundreds
+            // of big images would otherwise decode them all in parallel
+            // (blocking pool) and spike the memory
+            static THUMB_GEN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+            let _one = THUMB_GEN.lock().unwrap_or_else(|e| e.into_inner());
+            if !thumb_path.exists() {
+                let file = shot_file(&st, id)?;
+                make_thumb(&st.lib_dir().join(&file), &thumb_path);
+            }
         }
-    }
-    st.lib.lock().unwrap().remove(id);
-    let _ = std::fs::remove_file(st.thumbs_dir().join(format!("{id}.png")));
-    st.persist();
+        let data = std::fs::read(&thumb_path).map_err(|e| e.to_string())?;
+        Ok(format!("data:image/png;base64,{}", b64().encode(data)))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_image(app: AppHandle, id: Uuid) -> Result<String, String> {
+    blocking(app, move |app| {
+        let st = app.state::<AppState>();
+        let file = shot_file(&st, id)?;
+        let data = std::fs::read(st.lib_dir().join(&file)).map_err(|e| read_err(&file, e))?;
+        Ok(format!("data:{};base64,{}", mime_for(&file), b64().encode(data)))
+    })
+    .await
+}
+
+fn changed(app: &AppHandle) -> Result<(), String> {
+    app.state::<AppState>().persist()?;
     let _ = app.emit("library-changed", ());
     Ok(())
+}
+
+#[tauri::command]
+pub async fn rename_shot(app: AppHandle, id: Uuid, name: String) -> Result<(), String> {
+    blocking(app, move |app| {
+        if !app.state::<AppState>().lib.lock().unwrap().rename(id, &name) {
+            return Err(tr("Name darf nicht leer sein", "Name must not be empty"));
+        }
+        changed(app)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_tags(app: AppHandle, id: Uuid, tags: Vec<String>) -> Result<(), String> {
+    blocking(app, move |app| {
+        app.state::<AppState>().lib.lock().unwrap().set_tags(id, &tags);
+        changed(app)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_favorite(app: AppHandle, id: Uuid, favorite: bool) -> Result<(), String> {
+    blocking(app, move |app| {
+        app.state::<AppState>().lib.lock().unwrap().set_favorite(id, favorite);
+        changed(app)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_shot(app: AppHandle, id: Uuid) -> Result<(), String> {
+    blocking(app, move |app| {
+        let st = app.state::<AppState>();
+        let file = shot_file(&st, id)?;
+        let path = st.lib_dir().join(&file);
+        // Windows: a file another program holds open can't be deleted (retried
+        // briefly for scanners/indexers) — keep the index entry then, otherwise
+        // the next sync would re-adopt it as import
+        if let Err(e) = screencap_core::retry_io(|| std::fs::remove_file(&path)) {
+            if path.exists() {
+                return Err(tr(
+                    format!("Datei konnte nicht gelöscht werden: {e}"),
+                    format!("File could not be deleted: {e}"),
+                ));
+            }
+        }
+        st.lib.lock().unwrap().remove(id);
+        let _ = std::fs::remove_file(st.thumbs_dir().join(format!("{id}.png")));
+        changed(app)
+    })
+    .await
 }
 
 #[tauri::command]
 pub fn reveal_shot(st: State<'_, AppState>, id: Uuid) -> Result<(), String> {
-    let file = {
-        let lib = st.lib.lock().unwrap();
-        lib.get(id).ok_or_else(unknown_shot)?.file.clone()
-    };
-    tauri_plugin_opener::reveal_item_in_dir(st.lib_dir().join(file)).map_err(|e| e.to_string())
+    let file = shot_file(&st, id)?;
+    tauri_plugin_opener::reveal_item_in_dir(st.lib_dir().join(&file)).map_err(|e| {
+        tr(format!("Ordner konnte nicht geöffnet werden: {e}"), format!("Could not open the folder: {e}"))
+    })
 }
 
 #[tauri::command]
-pub fn copy_shot(st: State<'_, AppState>, id: Uuid) -> Result<(), String> {
-    let file = {
-        let lib = st.lib.lock().unwrap();
-        lib.get(id).ok_or_else(unknown_shot)?.file.clone()
-    };
-    capture::copy_image_to_clipboard(&st.lib_dir().join(file))
+pub async fn copy_shot(app: AppHandle, id: Uuid) -> Result<(), String> {
+    blocking(app, move |app| {
+        let st = app.state::<AppState>();
+        let file = shot_file(&st, id)?;
+        capture::copy_image_to_clipboard(&st.lib_dir().join(file))
+    })
+    .await
 }
 
-/// File an overwrite-save lands in: the same file for PNGs; for a JPG the
-/// PNG sibling — unless that name already belongs to another file, then a
-/// free `-2`, `-3` … name (never clobber another capture).
+/// File an overwrite-save lands in: the same file for PNGs (whatever the case
+/// of the extension); for a JPG the PNG sibling — unless that name already
+/// belongs to another file, then a free `-2`, `-3` … name (never clobber
+/// another capture). `exists()` is case-insensitive on APFS/NTFS, so
+/// `Shot.PNG` vs. `shot.png` count as the same name there.
 pub fn overwrite_target(dir: &std::path::Path, stem: &str, old_file: &str) -> String {
+    if old_file.to_ascii_lowercase().ends_with(".png") {
+        return old_file.to_string();
+    }
     let png = format!("{stem}.png");
-    if png == old_file || !dir.join(&png).exists() {
+    if !dir.join(&png).exists() {
         png
     } else {
         capture::unique_file_name(dir, stem, "png")
@@ -201,31 +247,38 @@ pub fn copy_target(dir: &std::path::Path, stem: &str) -> String {
 
 /// Writes via a hidden temp file + rename so a crash never leaves a half
 /// written capture (the temp name starts with "." and is ignored by sync).
-fn write_atomic(dir: &std::path::Path, file: &str, data: &[u8]) -> Result<(), String> {
+/// The rename retries on Windows sharing violations (scanner, OneDrive,
+/// an image viewer that has the file open).
+pub fn write_atomic(dir: &std::path::Path, file: &str, data: &[u8]) -> Result<(), String> {
     let tmp = dir.join(format!(".{file}.tmp"));
-    std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, dir.join(file)).map_err(|e| {
+    let fail = |e: std::io::Error| {
+        tr(format!("„{file}“ nicht gespeichert: {e}"), format!("“{file}” not saved: {e}"))
+    };
+    std::fs::write(&tmp, data).map_err(fail)?;
+    screencap_core::rename_replace(&tmp, &dir.join(file)).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
-        e.to_string()
+        fail(e)
     })
 }
 
 /// Saves an edited PNG. `mode` is "overwrite" or "copy".
 #[tauri::command]
-pub fn save_edit(
-    app: AppHandle,
-    st: State<'_, AppState>,
-    id: Uuid,
-    png_base64: String,
-    mode: String,
-) -> Result<ShotDto, String> {
-    let data = b64().decode(png_base64).map_err(|e| e.to_string())?;
-    if image::guess_format(&data).ok() != Some(image::ImageFormat::Png) {
-        return Err(tr("Editor-Daten sind kein PNG", "Editor data is not a PNG"));
+pub async fn save_edit(app: AppHandle, id: Uuid, png_base64: String, mode: String) -> Result<ShotDto, String> {
+    blocking(app, move |app| save_edit_blocking(app, id, png_base64, mode)).await
+}
+
+fn save_edit_blocking(app: &AppHandle, id: Uuid, png_base64: String, mode: String) -> Result<ShotDto, String> {
+    let st = app.state::<AppState>();
+    if mode != "overwrite" && mode != "copy" {
+        return Err(tr("unbekannter Speichermodus", "unknown save mode"));
     }
-    let (width, height) = image::load_from_memory_with_format(&data, image::ImageFormat::Png)
-        .map(|i| (i.width(), i.height()))
-        .map_err(|e| e.to_string())?;
+    let not_png = || tr("Editor-Daten sind kein PNG", "Editor data is not a PNG");
+    let data = b64().decode(png_base64).map_err(|_| not_png())?;
+    if image::guess_format(&data).ok() != Some(image::ImageFormat::Png) {
+        return Err(not_png());
+    }
+    let img = image::load_from_memory_with_format(&data, image::ImageFormat::Png).map_err(|_| not_png())?;
+    let (width, height) = (img.width(), img.height());
     let dir = st.lib_dir();
     let (old_file, old_name) = {
         let lib = st.lib.lock().unwrap();
@@ -238,15 +291,12 @@ pub fn save_edit(
         .unwrap_or("shot")
         .to_string();
 
-    if mode != "overwrite" && mode != "copy" {
-        return Err(tr("unbekannter Speichermodus", "unknown save mode"));
-    }
     let result_id = if mode == "overwrite" {
         // edits are always saved as PNG; swap the file if it wasn't one
         let new_file = overwrite_target(&dir, &stem, &old_file);
         write_atomic(&dir, &new_file, &data)?;
         if new_file != old_file {
-            let _ = std::fs::remove_file(dir.join(&old_file));
+            let _ = screencap_core::retry_io(|| std::fs::remove_file(dir.join(&old_file)));
         }
         {
             let mut lib = st.lib.lock().unwrap();
@@ -257,7 +307,7 @@ pub fn save_edit(
                 s.size_bytes = data.len() as u64;
             }
         }
-        make_thumb(&dir.join(&new_file), &st.thumbs_dir().join(format!("{id}.png")));
+        capture::write_thumb(&img, &st.thumbs_dir().join(format!("{id}.png")));
         id
     } else {
         let new_file = copy_target(&dir, &stem);
@@ -268,66 +318,72 @@ pub fn save_edit(
             lib.rename(nid, &format!("{old_name} (edit)"));
             nid
         };
-        make_thumb(&dir.join(&new_file), &st.thumbs_dir().join(format!("{new_id}.png")));
+        capture::write_thumb(&img, &st.thumbs_dir().join(format!("{new_id}.png")));
         new_id
     };
-    st.persist();
-    let _ = app.emit("library-changed", ());
+    changed(app)?;
     let lib = st.lib.lock().unwrap();
     lib.get(result_id)
         .map(to_dto)
         .ok_or_else(|| tr("Speichern fehlgeschlagen", "Saving failed"))
 }
 
+/// Name an imported file gets in the library: portable stem (see
+/// `sanitize_stem`), lowercase extension, never an existing name.
+pub fn import_target(dir: &std::path::Path, src: &std::path::Path) -> Option<String> {
+    let ext = src.extension().and_then(|e| e.to_str())?.to_lowercase();
+    if !["png", "jpg", "jpeg"].contains(&ext.as_str()) {
+        return None;
+    }
+    let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("import");
+    let stem = screencap_core::sanitize_stem(stem, "import");
+    Some(capture::unique_file_name(dir, &stem, &ext))
+}
+
 #[tauri::command]
-pub fn import_files(app: AppHandle, st: State<'_, AppState>, paths: Vec<String>) -> Result<u32, String> {
-    let dir = st.lib_dir();
-    let mut imported = 0u32;
-    for p in paths {
-        let src = std::path::PathBuf::from(&p);
-        let Some(file_name) = src.file_name().and_then(|f| f.to_str()) else {
-            continue;
-        };
-        let stem = std::path::Path::new(file_name)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("import");
-        let ext = src
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        if !["png", "jpg", "jpeg"].contains(&ext.as_str()) || !src.is_file() {
-            continue;
+pub async fn import_files(app: AppHandle, paths: Vec<String>) -> Result<u32, String> {
+    blocking(app, move |app| {
+        let st = app.state::<AppState>();
+        let dir = st.lib_dir();
+        let mut imported = 0u32;
+        let mut last_err: Option<String> = None;
+        for p in paths {
+            let src = std::path::PathBuf::from(&p);
+            if !src.is_file() {
+                continue;
+            }
+            // only real images — the content decides, not the extension
+            if image::image_dimensions(&src).is_err() {
+                continue;
+            }
+            let Some(target_name) = import_target(&dir, &src) else {
+                continue;
+            };
+            if let Err(e) = std::fs::copy(&src, dir.join(&target_name)) {
+                last_err = Some(e.to_string());
+                continue;
+            }
+            let (w, h) = image::image_dimensions(dir.join(&target_name)).unwrap_or((0, 0));
+            let size = std::fs::metadata(dir.join(&target_name)).map(|m| m.len()).unwrap_or(0);
+            let id = st.lib.lock().unwrap().add(&target_name, ShotKind::Import, w, h, size);
+            make_thumb(&dir.join(&target_name), &st.thumbs_dir().join(format!("{id}.png")));
+            imported += 1;
         }
-        // only real images — the content decides, not the extension
-        if image::image_dimensions(&src).is_err() {
-            continue;
+        if imported > 0 {
+            changed(app)?;
+        } else if let Some(e) = last_err {
+            return Err(tr(format!("Import fehlgeschlagen: {e}"), format!("Import failed: {e}")));
         }
-        // hidden names would be skipped by sync — strip leading dots
-        // (and ':' — not allowed on Windows, rejected by the index check)
-        let stem = stem.trim_start_matches('.').replace(':', "-");
-        let stem = if stem.trim().is_empty() { "import".to_string() } else { stem.trim().to_string() };
-        let target_name = capture::unique_file_name(&dir, &stem, &ext);
-        if std::fs::copy(&src, dir.join(&target_name)).is_err() {
-            continue;
-        }
-        let (w, h) = image::image_dimensions(dir.join(&target_name)).unwrap_or((0, 0));
-        let size = std::fs::metadata(dir.join(&target_name)).map(|m| m.len()).unwrap_or(0);
-        let id = st.lib.lock().unwrap().add(&target_name, ShotKind::Import, w, h, size);
-        make_thumb(&dir.join(&target_name), &st.thumbs_dir().join(format!("{id}.png")));
-        imported += 1;
-    }
-    if imported > 0 {
-        st.persist();
-        let _ = app.emit("library-changed", ());
-    }
-    Ok(imported)
+        Ok(imported)
+    })
+    .await
 }
 
 /// Reconciles index and disk; files found on disk without an index entry are
-/// adopted as imports. Called at startup and on demand.
-pub fn sync_library_internal(app: &AppHandle) {
+/// adopted as imports. Called at startup and on demand. Only reads image
+/// headers — thumbnails are generated lazily by `get_thumb`, so a folder
+/// with hundreds of foreign files doesn't stall startup.
+pub fn sync_library_internal(app: &AppHandle) -> Result<(), String> {
     let st = app.state::<AppState>();
     let on_disk = st.files_on_disk();
     let unknown = st.lib.lock().unwrap().sync(&on_disk);
@@ -335,16 +391,14 @@ pub fn sync_library_internal(app: &AppHandle) {
     for file in unknown {
         let (w, h) = image::image_dimensions(dir.join(&file)).unwrap_or((0, 0));
         let size = std::fs::metadata(dir.join(&file)).map(|m| m.len()).unwrap_or(0);
-        let id = st.lib.lock().unwrap().add(&file, ShotKind::Import, w, h, size);
-        make_thumb(&dir.join(&file), &st.thumbs_dir().join(format!("{id}.png")));
+        st.lib.lock().unwrap().add(&file, ShotKind::Import, w, h, size);
     }
-    st.persist();
-    let _ = app.emit("library-changed", ());
+    changed(app)
 }
 
 #[tauri::command]
-pub fn sync_library(app: AppHandle) {
-    sync_library_internal(&app);
+pub async fn sync_library(app: AppHandle) -> Result<(), String> {
+    blocking(app, sync_library_internal).await
 }
 
 #[tauri::command]
@@ -360,21 +414,36 @@ pub fn get_settings(st: State<'_, AppState>) -> Settings {
 }
 
 #[tauri::command]
-pub fn set_settings(app: AppHandle, st: State<'_, AppState>, new: Settings) -> Result<(), String> {
+pub async fn set_settings(app: AppHandle, new: Settings) -> Result<(), String> {
+    blocking(app, move |app| set_settings_blocking(app, new)).await
+}
+
+fn set_settings_blocking(app: &AppHandle, new: Settings) -> Result<(), String> {
+    let st = app.state::<AppState>();
     let new = new.normalized();
     let old = st.settings.lock().unwrap().clone();
     new.validate_shortcuts()?;
+    if let Some(e) = new.library_dir_error() {
+        return Err(e);
+    }
 
     // library folder must be creatable before anything is switched over
     let new_dir = new.resolved_library_dir();
-    if old.resolved_library_dir() != new_dir {
-        std::fs::create_dir_all(&new_dir)
-            .map_err(|e| {
-                tr(
-                    format!("Ablage-Ordner „{}“ nicht nutzbar: {e}", new_dir.display()),
-                    format!("Library folder “{}” not usable: {e}", new_dir.display()),
-                )
-            })?;
+    let dir_changes = old.resolved_library_dir() != new_dir;
+    if dir_changes {
+        // a running capture files its result into the current library
+        if st.capturing.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(tr(
+                "Während einer Aufnahme lässt sich der Ablage-Ordner nicht wechseln",
+                "The library folder can't be changed while a capture is running",
+            ));
+        }
+        std::fs::create_dir_all(&new_dir).map_err(|e| {
+            tr(
+                format!("Ablage-Ordner „{}“ nicht nutzbar: {e}", new_dir.display()),
+                format!("Library folder “{}” not usable: {e}", new_dir.display()),
+            )
+        })?;
         if !new_dir.is_dir() {
             return Err(tr(
                 format!("Ablage-Ordner „{}“ ist kein Ordner", new_dir.display()),
@@ -387,9 +456,9 @@ pub fn set_settings(app: AppHandle, st: State<'_, AppState>, new: Settings) -> R
         || old.shortcut_window != new.shortcut_window
         || old.shortcut_screen != new.shortcut_screen;
     if shortcuts_changed {
-        if let Err(e) = crate::register_shortcuts(&app, &new) {
+        if let Err(e) = crate::register_shortcuts(app, &new) {
             // e.g. taken by another app — put the old ones back
-            let _ = crate::register_shortcuts(&app, &old);
+            let _ = crate::register_shortcuts(app, &old);
             return Err(e);
         }
         *st.shortcut_error.lock().unwrap() = None;
@@ -405,16 +474,19 @@ pub fn set_settings(app: AppHandle, st: State<'_, AppState>, new: Settings) -> R
         };
         if let Err(e) = res {
             if shortcuts_changed {
-                let _ = crate::register_shortcuts(&app, &old);
+                let _ = crate::register_shortcuts(app, &old);
             }
-            return Err(format!("Autostart: {e}"));
+            return Err(tr(
+                format!("Autostart nicht geändert: {e}"),
+                format!("Start at login not changed: {e}"),
+            ));
         }
     }
 
-    if let Err(e) = settings::store(&app, &new) {
+    if let Err(e) = settings::store(app, &new) {
         // nothing persisted — undo what was already switched over
         if shortcuts_changed {
-            let _ = crate::register_shortcuts(&app, &old);
+            let _ = crate::register_shortcuts(app, &old);
         }
         if old.autostart != new.autostart {
             use tauri_plugin_autostart::ManagerExt;
@@ -426,13 +498,13 @@ pub fn set_settings(app: AppHandle, st: State<'_, AppState>, new: Settings) -> R
     settings::set_message_language(&new.language);
 
     if old.language != new.language {
-        crate::update_tray_language(&app, &new);
+        crate::update_tray_language(app, &new);
     }
-    if old.resolved_library_dir() != new_dir {
+    if dir_changes {
         // switch library: load (or start) the index in the new folder
         let lib = screencap_core::load_library_or_recover(&st.index_path());
         *st.lib.lock().unwrap() = lib;
-        sync_library_internal(&app);
+        sync_library_internal(app)?;
     }
     Ok(())
 }
@@ -467,7 +539,9 @@ pub struct UpdateInfoDto {
 #[tauri::command]
 pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfoDto>, String> {
     use tauri_plugin_updater::UpdaterExt;
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    let updater = app.updater().map_err(|e| {
+        tr(format!("Update-Prüfung fehlgeschlagen: {e}"), format!("Update check failed: {e}"))
+    })?;
     match updater.check().await {
         Ok(Some(update)) => Ok(Some(UpdateInfoDto {
             version: update.version.clone(),
@@ -482,10 +556,27 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfoDto>, Strin
     }
 }
 
+/// Clears the "update installing" flag again when the install fails.
+struct UpdateGuard<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl Drop for UpdateGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    let st = app.state::<AppState>();
+    // banner and settings dialog both offer "install" — only one download
+    if st.updating.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err(tr("Update wird bereits installiert", "Update is already being installed"));
+    }
+    let _guard = UpdateGuard(&st.updating);
+    let updater = app.updater().map_err(|e| {
+        tr(format!("Update-Prüfung fehlgeschlagen: {e}"), format!("Update check failed: {e}"))
+    })?;
     let update = updater
         .check()
         .await
@@ -513,6 +604,38 @@ mod tests {
         let d = tmpdir();
         std::fs::write(d.join("a.png"), b"x").unwrap();
         assert_eq!(overwrite_target(&d, "a", "a.png"), "a.png");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn overwrite_png_with_uppercase_extension_keeps_its_file() {
+        let d = tmpdir();
+        std::fs::write(d.join("Shot.PNG"), b"x").unwrap();
+        // case-insensitive APFS/NTFS: "Shot.png" exists — must not become Shot-2.png
+        assert_eq!(overwrite_target(&d, "Shot", "Shot.PNG"), "Shot.PNG");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn import_names_are_portable_and_unique() {
+        let d = tmpdir();
+        let t = import_target(&d, std::path::Path::new("/src/Bericht: Q1.PNG")).unwrap();
+        assert_eq!(t, "Bericht- Q1.png");
+        std::fs::write(d.join(&t), b"x").unwrap();
+        assert_eq!(import_target(&d, std::path::Path::new("/src/Bericht: Q1.png")).unwrap(), "Bericht- Q1-2.png");
+        assert_eq!(import_target(&d, std::path::Path::new("/src/CON.jpg")).unwrap(), "_CON.jpg");
+        assert_eq!(import_target(&d, std::path::Path::new("/src/.versteckt.jpeg")).unwrap(), "versteckt.jpeg");
+        assert_eq!(import_target(&d, std::path::Path::new("/src/Grüße Ä.jpg")).unwrap(), "Grüße Ä.jpg");
+        assert!(import_target(&d, std::path::Path::new("/src/a.webp")).is_none());
+        assert!(import_target(&d, std::path::Path::new("/src/noext")).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn atomic_write_reports_a_localized_error() {
+        let d = tmpdir();
+        let err = write_atomic(&d.join("missing-dir"), "c.png", b"x").unwrap_err();
+        assert!(err.contains("c.png"), "{err}");
         let _ = std::fs::remove_dir_all(&d);
     }
 

@@ -356,6 +356,8 @@ label.check input { width: auto; }
 .modal .btnrow { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .modal .sep { border-top: 1px solid var(--border); margin: 16px 0; }
 .modal .row2 { display: flex; gap: 8px; align-items: center; }
+.modal .row2 input { min-width: 0; flex: 1; }
+.modal .row2 button { white-space: nowrap; flex: none; }
 .updatebox {
   font-size: 13px;
   color: var(--text-dim);
@@ -366,6 +368,12 @@ label.check input { width: auto; }
 }
 
 /* toast */
+.toast.error {
+  border-color: var(--red);
+  color: var(--red);
+  cursor: pointer;
+}
+
 .toast {
   position: fixed;
   bottom: 18px;
@@ -381,6 +389,9 @@ label.check input { width: auto; }
   z-index: 100;
   box-shadow: 0 8px 24px var(--shadow);
   animation: toast-in 0.15s ease-out;
+  max-width: min(640px, calc(100vw - 32px));
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(-50%) translateY(8px); }
@@ -561,11 +572,14 @@ kbd {
 .hlp-content h2 { font-size: 17px; margin: 0 0 14px; }
 
 /* update banner (startup auto-check) */
+/* im Fluss unter der Kopfzeile statt schwebend — verdeckt so weder die
+   Editor-Werkzeugleiste noch den Einstellungen-Dialog */
 .upd-banner {
-  position: fixed;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
+  align-self: center;
+  flex: none;
+  margin: 10px 16px 0;
+  max-width: calc(100% - 32px);
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -574,8 +588,6 @@ kbd {
   border-radius: 10px;
   padding: 8px 14px;
   font-size: 13px;
-  z-index: 50;
-  box-shadow: 0 10px 30px var(--shadow);
 }
 
 /* ---------- region overlay (Windows region capture, own window) ---------- */

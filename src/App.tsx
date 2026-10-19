@@ -4,6 +4,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { api, Filter, Settings, Shot, UpdateInfo } from './api';
 import { dicts, Lang } from './i18n';
 import { IS_WINDOWS, systemLang } from './platform';
+import { askConfirm } from './dialog';
 import { Editor } from './components/Editor';
 import { SettingsModal } from './components/SettingsModal';
 import { Help } from './components/Help';
@@ -69,7 +70,7 @@ export default function App() {
   const [delay, setDelay] = useState(0);
   const [editorShot, setEditorShot] = useState<Shot | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; error: boolean } | null>(null);
   const [updateAvail, setUpdateAvail] = useState<UpdateInfo | null>(null);
   const [installing, setInstalling] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -84,15 +85,22 @@ export default function App() {
   tRef.current = t;
   const revealLabel = IS_WINDOWS ? t.revealWin : t.reveal;
 
+  // Bestätigungen verschwinden nach 1,5 s; Fehler bleiben 8 s stehen (lang
+  // genug zum Lesen) und lassen sich per Klick schließen
   const showToast = useCallback((msg: string) => {
-    setToast(msg);
+    setToast({ msg, error: false });
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 1500);
   }, []);
+  const showError = useCallback((e: unknown) => {
+    setToast({ msg: String(e), error: true });
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 8000);
+  }, []);
 
   const refresh = useCallback(() => {
-    api.listShots(query, filter).then(setShots).catch(() => {});
-  }, [query, filter]);
+    api.listShots(query, filter).then(setShots).catch(showError);
+  }, [query, filter, showError]);
 
   useEffect(() => {
     Promise.all([api.getSettings(), api.appStatus().catch(() => null)]).then(([s, status]) => {
@@ -136,7 +144,7 @@ export default function App() {
         });
       }),
       // Fehler bei Kürzel-/Tray-Aufnahmen (kein invoke-Aufrufer, der sie anzeigt)
-      listen<string>('capture-error', (e) => showToast(String(e.payload))),
+      listen<string>('capture-error', (e) => showError(e.payload)),
     ];
     return () => {
       subs.forEach((p) => p.then((un) => un()));
@@ -155,31 +163,35 @@ export default function App() {
   // Editor verlassen/wechseln — bei ungespeicherten Änderungen erst fragen
   async function openEditor(next: Shot | null) {
     if (dirtyRef.current) {
-      const { confirm } = await import('@tauri-apps/plugin-dialog');
-      if (!(await confirm(tRef.current.discardConfirm))) return;
+      const tt = tRef.current;
+      if (!(await askConfirm(tt.discardConfirm, tt.discardOk, tt.cancel))) return;
     }
     dirtyRef.current = false;
     setEditorShot(next);
   }
 
   const capture = (kind: 'region' | 'window' | 'screen') => {
-    api.capture(kind, delay).catch((e) => showToast(String(e)));
+    api.capture(kind, delay).catch(showError);
   };
 
   const doImport = async () => {
-    const picked = await open({
-      multiple: true,
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }],
-    });
-    if (!picked) return;
-    const paths = Array.isArray(picked) ? picked : [picked];
     try {
+      const picked = await open({
+        multiple: true,
+        filters: [{ name: t.imagesFilter, extensions: ['png', 'jpg', 'jpeg', 'PNG', 'JPG', 'JPEG'] }],
+      });
+      if (!picked) return;
+      const paths = Array.isArray(picked) ? picked : [picked];
       const n = await api.importFiles(paths as string[]);
       showToast(n > 0 ? `${n} ${t.imported}` : t.importNone);
     } catch (e) {
-      showToast(String(e));
+      showError(e);
     }
   };
+
+  // Standard-Verzögerung aus den Einstellungen (0–60 s) muss im Dropdown
+  // auftauchen, sonst zeigt es „sofort“, während z. B. 7 s gelten
+  const delayOptions = Array.from(new Set([0, 3, 5, 10, delay])).sort((a, b) => a - b);
 
   const filters: { key: Filter; label: string }[] = [
     { key: 'all', label: t.all },
@@ -223,10 +235,11 @@ export default function App() {
                 value={delay}
                 onChange={(e) => setDelay(Number(e.target.value))}
               >
-                <option value={0}>{t.delayNone}</option>
-                <option value={3}>3 s</option>
-                <option value={5}>5 s</option>
-                <option value={10}>10 s</option>
+                {delayOptions.map((d) => (
+                  <option key={d} value={d}>
+                    {d === 0 ? t.delayNone : `${d} ${t.seconds}`}
+                  </option>
+                ))}
               </select>
             </div>
             <button className="ghost" title={t.importBtn} onClick={doImport}>
@@ -239,6 +252,31 @@ export default function App() {
         )}
       </div>
 
+      {updateAvail && (
+        <div className="upd-banner">
+          <span>
+            {t.updateBanner} <strong>{updateAvail.version}</strong>
+          </span>
+          <button
+            className="primary"
+            disabled={installing}
+            onClick={() => {
+              setInstalling(true);
+              api.installUpdate().catch((e) => {
+                setInstalling(false);
+                showError(`${t.updateInstallError} ${e}`);
+              });
+            }}
+          >
+            {installing ? t.updateInstalling : t.updateInstall}
+          </button>
+          <button className="ghost" onClick={() => setUpdateAvail(null)}>
+            {t.updateLater}
+          </button>
+        </div>
+      )}
+
+
       {editorShot ? (
         <Editor
           shot={editorShot}
@@ -249,6 +287,7 @@ export default function App() {
             dirtyRef.current = d;
           }}
           showToast={showToast}
+          showError={showError}
         />
       ) : (
         <>
@@ -288,7 +327,7 @@ export default function App() {
                         api
                           .copyShot(s.id)
                           .then(() => showToast(t.copied))
-                          .catch((err) => showToast(String(err)));
+                          .catch(showError);
                       }}
                     >
                       <IconCopy />
@@ -298,7 +337,7 @@ export default function App() {
                       title={t.favorite}
                       onClick={(e) => {
                         e.stopPropagation();
-                        api.setFavorite(s.id, !s.favorite).catch((err) => showToast(String(err)));
+                        api.setFavorite(s.id, !s.favorite).catch(showError);
                       }}
                     >
                       <IconStar filled={s.favorite} />
@@ -308,7 +347,7 @@ export default function App() {
                       title={revealLabel}
                       onClick={(e) => {
                         e.stopPropagation();
-                        api.revealShot(s.id).catch((err) => showToast(String(err)));
+                        api.revealShot(s.id).catch(showError);
                       }}
                     >
                       <IconFolder />
@@ -318,9 +357,8 @@ export default function App() {
                       title={t.delete}
                       onClick={async (e) => {
                         e.stopPropagation();
-                        const { confirm } = await import('@tauri-apps/plugin-dialog');
-                        if (await confirm(t.deleteConfirm))
-                          api.deleteShot(s.id).catch((err) => showToast(String(err)));
+                        if (await askConfirm(t.deleteConfirm, t.deleteOk, t.cancel))
+                          api.deleteShot(s.id).catch(showError);
                       }}
                     >
                       <IconTrash />
@@ -370,29 +408,17 @@ export default function App() {
         />
       )}
 
-      {updateAvail && (
-        <div className="upd-banner">
-          <span>
-            {t.updateBanner} <strong>{updateAvail.version}</strong>
-          </span>
-          <button
-            className="primary"
-            disabled={installing}
-            onClick={() => {
-              setInstalling(true);
-              api.installUpdate().catch(() => setInstalling(false));
-            }}
-          >
-            {installing ? t.updateInstalling : t.updateInstall}
-          </button>
-          <button className="ghost" onClick={() => setUpdateAvail(null)}>
-            {t.updateLater}
-          </button>
+      <Help lang={lang} />
+      {toast && (
+        <div
+          className={`toast ${toast.error ? 'error' : ''}`}
+          role={toast.error ? 'alert' : 'status'}
+          title={toast.error ? t.dismiss : undefined}
+          onClick={() => setToast(null)}
+        >
+          {toast.msg}
         </div>
       )}
-
-      <Help lang={lang} />
-      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }

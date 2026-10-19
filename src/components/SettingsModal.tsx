@@ -22,6 +22,7 @@ export function SettingsModal({
   const [s, setS] = useState<Settings>({ ...settings });
   const [libPath, setLibPath] = useState('');
   const [updState, setUpdState] = useState<'idle' | 'checking' | 'none' | 'error'>('idle');
+  const [updError, setUpdError] = useState<string | null>(null);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [installing, setInstalling] = useState(false);
   const [version, setVersion] = useState(APP_VERSION);
@@ -38,6 +39,18 @@ export function SettingsModal({
       .catch(() => {});
   }, []);
 
+  // Esc schließt den Dialog (ohne Speichern) — nicht während gespeichert wird
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !saving) {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, saving]);
+
   const doSave = () => {
     setSaving(true);
     setSaveError(null);
@@ -50,13 +63,18 @@ export function SettingsModal({
     setS((prev) => ({ ...prev, [key]: value }));
 
   const pickDir = async () => {
-    const picked = await open({ directory: true });
-    if (typeof picked === 'string') set('libraryDir', picked);
+    try {
+      const picked = await open({ directory: true });
+      if (typeof picked === 'string') set('libraryDir', picked);
+    } catch (e) {
+      setSaveError(String(e));
+    }
   };
 
   const checkUpdates = () => {
     setUpdState('checking');
     setUpdate(null);
+    setUpdError(null);
     api
       .checkUpdate()
       .then((u) => {
@@ -67,7 +85,10 @@ export function SettingsModal({
           setUpdState('none');
         }
       })
-      .catch(() => setUpdState('error'));
+      .catch((e) => {
+        setUpdError(String(e));
+        setUpdState('error');
+      });
   };
 
   return (
@@ -209,7 +230,7 @@ export function SettingsModal({
             {updState === 'checking' ? t.checking : t.checkUpdates}
           </button>
           {updState === 'none' && <span>{t.upToDate}</span>}
-          {updState === 'error' && <span style={{ color: 'var(--red)' }}>{t.updateError}</span>}
+          {updState === 'error' && !updError && <span style={{ color: 'var(--red)' }}>{t.updateError}</span>}
           {update && (
             <>
               <span>
@@ -220,19 +241,28 @@ export function SettingsModal({
                 disabled={installing}
                 onClick={() => {
                   setInstalling(true);
-                  api.installUpdate().catch(() => setInstalling(false));
+                  setUpdError(null);
+                  api.installUpdate().catch((e) => {
+                    setInstalling(false);
+                    setUpdError(`${t.updateInstallError} ${e}`);
+                  });
                 }}
               >
-                {t.installUpdate}
+                {installing ? t.updateInstalling : t.installUpdate}
               </button>
             </>
           )}
         </div>
+        {updError && (
+          <div className="note" style={{ color: 'var(--red)', overflowWrap: 'anywhere' }}>
+            {updError}
+          </div>
+        )}
         {update?.notes && <div className="note">{update.notes}</div>}
 
         <div className="note">{IS_WINDOWS ? t.permissionNoteWin : t.permissionNote}</div>
         {saveError && (
-          <div className="note" style={{ color: 'var(--red)' }}>
+          <div className="note" style={{ color: 'var(--red)', overflowWrap: 'anywhere' }}>
             {saveError}
           </div>
         )}

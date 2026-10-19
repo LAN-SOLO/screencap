@@ -13,6 +13,10 @@ Screenshot-Tool mit Ablage: aufnehmen, markieren, wiederfinden.
   mit Namen, Tags, Favoriten und Thumbnails. Ordner frei wählbar, Dateien
   bleiben normale PNGs/JPGs (Import: PNG/JPG).
 - Tray, Autostart, DE/EN, signierte In-App-Updates. Alles lokal.
+- Windows-fest: Dateinamen beim Import portabel bereinigt, Speichern/Löschen
+  wiederholen kurz bei gesperrten Dateien (Virenscanner, OneDrive), schwere
+  Arbeit (Bilder laden/speichern, Import, Ordnerwechsel) läuft nicht im
+  UI-Thread.
 
 ## Entwicklung
 
@@ -22,7 +26,7 @@ pnpm tauri dev              # App im Dev-Modus
 cargo test --workspace      # Core- und App-Tests (vorher einmal pnpm build)
 ```
 
-Version 1.0.0 — Audit-Bericht, Sicherheitsbefunde und manuelle
+Version 1.0.0 — Audit-Bericht (inkl. Runde 2), Sicherheitsbefunde und manuelle
 Test-Checkliste (macOS/Windows): `AUDIT-1.0.md`.
 
 Release-Build (macOS, mit Updater-Artefakten):

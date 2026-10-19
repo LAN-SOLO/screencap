@@ -123,8 +123,11 @@ fn main() {
                 shortcut_error: Mutex::new(None),
                 first_run: !existed,
                 capturing: std::sync::atomic::AtomicBool::new(false),
+                updating: std::sync::atomic::AtomicBool::new(false),
             });
-            commands::sync_library_internal(&handle);
+            if let Err(e) = commands::sync_library_internal(&handle) {
+                eprintln!("screencap: {e}");
+            }
             build_tray(app, &s)?;
             if let Err(e) = register_shortcuts(&handle, &s) {
                 eprintln!("screencap: {e}");

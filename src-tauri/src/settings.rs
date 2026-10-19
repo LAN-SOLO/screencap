@@ -114,13 +114,61 @@ impl Settings {
     }
 
     pub fn resolved_library_dir(&self) -> PathBuf {
-        if !self.library_dir.trim().is_empty() {
-            return PathBuf::from(self.library_dir.trim());
+        let custom = self.library_dir.trim();
+        if !custom.is_empty() {
+            return expand_library_dir(custom, dirs::home_dir());
         }
-        dirs::picture_dir()
-            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
-            .join("screencap")
+        default_library_dir()
     }
+
+    /// A typed-in library folder must be an absolute path (a relative one
+    /// would depend on the working directory, which is `/` for an app started
+    /// from Finder/Dock and `C:\Windows\System32` for autostart).
+    pub fn library_dir_error(&self) -> Option<String> {
+        let custom = self.library_dir.trim();
+        if custom.is_empty() || self.resolved_library_dir().is_absolute() {
+            return None;
+        }
+        Some(tr(
+            format!("Ablage-Ordner „{custom}“ ist kein vollständiger Pfad (z. B. {})", example_dir()),
+            format!("Library folder “{custom}” is not a full path (e.g. {})", example_dir()),
+        ))
+    }
+}
+
+fn default_library_dir() -> PathBuf {
+    dirs::picture_dir()
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+        .join("screencap")
+}
+
+fn example_dir() -> &'static str {
+    if cfg!(windows) {
+        r"D:\Bilder\screencap"
+    } else {
+        "/Users/name/Pictures/screencap"
+    }
+}
+
+/// `~` / `~/…` (also `~\…`) → home folder; a bare drive `D:` (which Windows
+/// reads as "current folder on drive D") → the drive root `D:\`.
+pub fn expand_library_dir(custom: &str, home: Option<PathBuf>) -> PathBuf {
+    if let Some(home) = home {
+        if custom == "~" {
+            return home;
+        }
+        if let Some(rest) = custom.strip_prefix("~/").or_else(|| custom.strip_prefix("~\\")) {
+            return home.join(rest);
+        }
+    }
+    let b = custom.as_bytes();
+    if b.len() == 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+        return PathBuf::from(format!("{custom}\\"));
+    }
+    PathBuf::from(custom)
+}
+
+impl Settings {
 }
 
 fn default_theme() -> String {
@@ -148,11 +196,15 @@ fn settings_path(app: &tauri::AppHandle) -> PathBuf {
 pub fn load(app: &tauri::AppHandle) -> (Settings, bool) {
     let path = settings_path(app);
     let existed = path.exists();
-    let s: Settings = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
-    (s.normalized(), existed)
+    (parse_settings(std::fs::read(&path).ok().as_deref()), existed)
+}
+
+/// settings.json → Settings; tolerates a UTF-8 BOM (hand-edited in Notepad),
+/// falls back to the defaults for a missing or unreadable file.
+pub fn parse_settings(data: Option<&[u8]>) -> Settings {
+    data.and_then(|d| serde_json::from_slice::<Settings>(screencap_core::strip_bom(d)).ok())
+        .unwrap_or_default()
+        .normalized()
 }
 
 pub fn store(app: &tauri::AppHandle, settings: &Settings) -> Result<(), String> {
@@ -163,7 +215,10 @@ pub fn store(app: &tauri::AppHandle, settings: &Settings) -> Result<(), String> 
         tr(format!("Einstellungen nicht gespeichert: {e}"), format!("Settings not saved: {e}"))
     };
     std::fs::write(&tmp, json).map_err(fail)?;
-    std::fs::rename(&tmp, &path).map_err(fail)
+    screencap_core::rename_replace(&tmp, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        fail(e)
+    })
 }
 
 #[cfg(test)]
@@ -223,6 +278,37 @@ mod tests {
         let dup = Settings { shortcut_window: "CmdOrCtrl+Shift+7".into(), ..Settings::default() };
         let err = dup.validate_shortcuts().unwrap_err();
         assert!(err.contains("doppelt") || err.contains("twice"), "{err}");
+    }
+
+    #[test]
+    fn settings_json_with_bom_is_read() {
+        let mut data = b"\xEF\xBB\xBF".to_vec();
+        data.extend_from_slice(br#"{"language":"de","format":"jpg"}"#);
+        let s = parse_settings(Some(&data));
+        assert_eq!((s.language.as_str(), s.format.as_str()), ("de", "jpg"));
+        assert_eq!(parse_settings(None).format, "png");
+        assert_eq!(parse_settings(Some(b"{ kaputt")).format, "png");
+    }
+
+    #[test]
+    fn library_dir_expansion() {
+        let home = Some(PathBuf::from("/home/u"));
+        assert_eq!(expand_library_dir("~", home.clone()), PathBuf::from("/home/u"));
+        assert_eq!(expand_library_dir("~/Bilder", home.clone()), PathBuf::from("/home/u/Bilder"));
+        assert_eq!(expand_library_dir("D:", home.clone()), PathBuf::from("D:\\"));
+        assert_eq!(expand_library_dir("/x/y", home), PathBuf::from("/x/y"));
+    }
+
+    #[test]
+    fn relative_library_dir_is_rejected() {
+        let rel = Settings { library_dir: "screens".into(), ..Settings::default() };
+        assert!(rel.library_dir_error().is_some());
+        assert!(Settings::default().library_dir_error().is_none());
+        let abs = if cfg!(windows) { r"D:\Bilder" } else { "/tmp/screens" };
+        let ok = Settings { library_dir: abs.into(), ..Settings::default() };
+        assert!(ok.library_dir_error().is_none());
+        let home = Settings { library_dir: "~/screens".into(), ..Settings::default() };
+        assert!(home.library_dir_error().is_none());
     }
 
     #[test]

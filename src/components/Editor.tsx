@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, Shot } from '../api';
 import { Dict } from '../i18n';
 import { IS_WINDOWS } from '../platform';
+import { askConfirm } from '../dialog';
 import {
   IconArrow,
   IconCopy,
@@ -432,6 +433,7 @@ export function Editor({
   onShotChanged,
   onDirtyChange,
   showToast,
+  showError,
 }: {
   shot: Shot;
   t: Dict;
@@ -440,6 +442,8 @@ export function Editor({
   /** meldet ungespeicherte Änderungen, damit die App vor dem Verwerfen fragt */
   onDirtyChange?: (dirty: boolean) => void;
   showToast: (msg: string) => void;
+  /** Fehler: bleibt länger stehen als eine Bestätigung */
+  showError: (e: unknown) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -462,6 +466,24 @@ export function Editor({
   const [name, setName] = useState(shot.name);
   const [tags, setTags] = useState(shot.tags.join(', '));
   const [dirty, setDirty] = useState(false);
+  // läuft ein Speichern/Löschen? — Knöpfe gesperrt, kein doppeltes „Als Kopie“
+  const [busy, setBusyState] = useState(false);
+  // Ref zusätzlich zum State: zwei Klicks im selben Frame sehen den State
+  // noch nicht — der Ref sperrt sofort
+  const busyRef = useRef(false);
+  const setBusy = (b: boolean) => {
+    busyRef.current = b;
+    setBusyState(b);
+  };
+  // Editor noch sichtbar? Ein Speichern, das erst nach „Zurück“ fertig wird,
+  // darf den Editor nicht wieder öffnen
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Name/Tags folgen der angezeigten Aufnahme (z. B. nach „Als Kopie speichern“
   // oder einem Wechsel per Aufnahme), nicht nur dem ersten Mount
@@ -508,6 +530,9 @@ export function Editor({
     let alive = true;
     api.getImage(shot.id).then((dataUrl) => {
       const img = new Image();
+      img.onerror = () => {
+        if (alive) showError(`${t.imageLoadError} ${shot.file}`);
+      };
       img.onload = () => {
         if (!alive) return;
         const c = document.createElement('canvas');
@@ -523,6 +548,8 @@ export function Editor({
         setBaseVersion((v) => v + 1);
       };
       img.src = dataUrl;
+    }).catch((e) => {
+      if (alive) showError(`${t.imageLoadError} ${e}`);
     });
     return () => {
       alive = false;
@@ -806,6 +833,8 @@ export function Editor({
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+      // Hilfe offen: Tasten gehören ihr (Entf/Pfeile/Esc nicht ins Bild)
+      if (document.querySelector('.hlp-overlay, .overlay')) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         if (cropDraft) setCropDraft(null);
@@ -953,18 +982,24 @@ export function Editor({
   const activeWidth = selectedIdx != null && shapes[selectedIdx] ? shapes[selectedIdx].width : width;
 
   const save = (mode: 'overwrite' | 'copy') => {
+    if (busyRef.current || !baseRef.current) return;
     const list = withPendingText();
     if (textPos) commitText();
     const dataUrl = bakeToCanvas(list).toDataURL('image/png');
     const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    setBusy(true);
     api
       .saveEdit(shot.id, b64, mode)
       .then((updated) => {
+        if (!mountedRef.current) return; // inzwischen zurück in der Bibliothek
         showToast(t.saved);
         setDirty(false);
         onShotChanged(updated);
       })
-      .catch((e) => showToast(String(e)));
+      .catch(showError)
+      .finally(() => {
+        if (mountedRef.current) setBusy(false);
+      });
   };
 
   // text input overlay position in display coordinates
@@ -1045,10 +1080,14 @@ export function Editor({
           </>
         )}
         <span style={{ flex: 1 }} />
-        <button onClick={() => save('copy')} disabled={!dirty && !textValue.trim()}>
+        <button onClick={() => save('copy')} disabled={busy || (!dirty && !textValue.trim())}>
           {t.saveCopy}
         </button>
-        <button className="primary" onClick={() => save('overwrite')} disabled={!dirty && !textValue.trim()}>
+        <button
+          className="primary"
+          onClick={() => save('overwrite')}
+          disabled={busy || (!dirty && !textValue.trim())}
+        >
           {t.saveOverwrite}
         </button>
       </div>
@@ -1093,8 +1132,13 @@ export function Editor({
               value={name}
               onChange={(e) => setName(e.target.value)}
               onBlur={() => {
-                if (name.trim() && name !== shot.name) {
-                  api.renameShot(shot.id, name).catch(() => {});
+                if (!name.trim()) {
+                  setName(shot.name); // leerer Name: alten wiederherstellen
+                } else if (name !== shot.name) {
+                  api.renameShot(shot.id, name).catch((e) => {
+                    setName(shot.name);
+                    showError(e);
+                  });
                 }
               }}
             />
@@ -1106,12 +1150,9 @@ export function Editor({
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               onBlur={() => {
-                api
-                  .setTags(
-                    shot.id,
-                    tags.split(',').map((x) => x.trim()).filter(Boolean)
-                  )
-                  .catch(() => {});
+                const next = tags.split(',').map((x) => x.trim()).filter(Boolean);
+                if (next.join(', ') === shot.tags.join(', ')) return;
+                api.setTags(shot.id, next).catch(showError);
               }}
             />
           </label>
@@ -1122,7 +1163,7 @@ export function Editor({
                 api
                   .setFavorite(shot.id, !shot.favorite)
                   .then(() => onShotChanged({ ...shot, favorite: !shot.favorite }))
-                  .catch((e) => showToast(String(e)));
+                  .catch(showError);
               }}
             >
               <IconStar filled={shot.favorite} /> {t.favorite}
@@ -1132,42 +1173,49 @@ export function Editor({
                 api
                   .copyShot(shot.id)
                   .then(() => showToast(t.copied))
-                  .catch((e) => showToast(String(e)))
+                  .catch(showError)
               }
             >
               <IconCopy /> {t.copy}
             </button>
-            <button onClick={() => api.revealShot(shot.id).catch((e) => showToast(String(e)))}>
+            <button onClick={() => api.revealShot(shot.id).catch(showError)}>
               <IconFolder /> {IS_WINDOWS ? t.revealWin : t.reveal}
             </button>
             <button
               className="danger"
+              disabled={busy}
               onClick={async () => {
-                // window.confirm is unreliable in the Tauri webview — use the
-                // native dialog plugin like the other LAN-SOLO apps
-                const { confirm } = await import('@tauri-apps/plugin-dialog');
-                if (await confirm(t.deleteConfirm)) {
-                  api
-                    .deleteShot(shot.id)
-                    .then(() => onShotChanged(null))
-                    .catch((e) => showToast(String(e)));
-                }
+                // window.confirm ist in der Tauri-WebView ein Stub (immer
+                // „wahr“) — native Rückfrage über das Dialog-Plugin
+                if (busyRef.current) return;
+                if (!(await askConfirm(t.deleteConfirm, t.deleteOk, t.cancel))) return;
+                if (busyRef.current) return;
+                setBusy(true);
+                api
+                  .deleteShot(shot.id)
+                  .then(() => {
+                    if (mountedRef.current) onShotChanged(null);
+                  })
+                  .catch(showError)
+                  .finally(() => {
+                    if (mountedRef.current) setBusy(false);
+                  });
               }}
             >
               <IconTrash /> {t.delete}
             </button>
           </div>
           <div className="metagrid">
-            <span className="k">px</span>
+            <span className="k">{t.metaPx}</span>
             <span>
               {shot.width} × {shot.height}
             </span>
-            <span className="k">file</span>
+            <span className="k">{t.metaFile}</span>
             <span style={{ wordBreak: 'break-all' }}>{shot.file}</span>
-            <span className="k">size</span>
+            <span className="k">{t.metaSize}</span>
             <span>{fmtSize(shot.sizeBytes)}</span>
-            <span className="k">date</span>
-            <span>{new Date(shot.capturedAt).toLocaleString()}</span>
+            <span className="k">{t.metaDate}</span>
+            <span>{new Date(shot.capturedAt).toLocaleString(t.locale)}</span>
           </div>
           <div className="note">{IS_WINDOWS ? t.selectHintWin : t.selectHint}</div>
           <div className="note">{t.pixelateNote}</div>

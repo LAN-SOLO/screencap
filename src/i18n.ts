@@ -61,7 +61,7 @@ const de = {
   themeDark: 'Dunkel',
   themeLight: 'Hell',
   libraryDir: 'Ablage-Ordner',
-  libraryDirHint: 'leer = ~/Pictures/screencap',
+  libraryDirHint: 'leer = ~/Pictures/screencap · vollständiger Pfad, ~ erlaubt',
   choose: 'Wählen …',
   format: 'Format',
   delayDefault: 'Standard-Verzögerung (Sekunden)',
@@ -73,7 +73,7 @@ const de = {
   shortcutRegion: 'Ausschnitt aufnehmen',
   shortcutWindow: 'Fenster aufnehmen',
   shortcutScreen: 'Bildschirm aufnehmen',
-  shortcutHint: 'z. B. CmdOrCtrl+Shift+7',
+  shortcutHint: 'Schreibweise z. B. CmdOrCtrl+Shift+7 — CmdOrCtrl = ⌘ auf dem Mac, Strg unter Windows',
   permissionNote:
     '// macOS fragt bei der ersten Aufnahme nach der Bildschirmaufnahme-Freigabe — einmal erlauben, fertig. Alles bleibt lokal in deinem Ablage-Ordner.',
   updates: 'Updates',
@@ -94,10 +94,23 @@ const de = {
   discardConfirm: 'Ungespeicherte Änderungen verwerfen?',
   importNone: 'Keine importierbaren Bilder (PNG/JPG)',
   selectHintWin:
-    'Objekt anklicken: verschieben, über Eck-/Kanten-Anfasser skalieren, dehnen und stauchen; Linien/Pfeile am runden Mittel-Anfasser biegen. Ctrl+D/Ctrl+C+Ctrl+V dupliziert, Alt-Ziehen kopiert, Doppelklick bearbeitet Text, Entf löscht, Pfeiltasten verschieben (Shift = 10 px). Ctrl+Z / Ctrl+Shift+Z: Rückgängig / Wiederholen.',
+    'Objekt anklicken: verschieben, über Eck-/Kanten-Anfasser skalieren, dehnen und stauchen; Linien/Pfeile am runden Mittel-Anfasser biegen. Strg+D/Strg+C+Strg+V dupliziert, Alt-Ziehen kopiert, Doppelklick bearbeitet Text, Entf löscht, Pfeiltasten verschieben (Shift = 10 px). Strg+Z / Strg+Shift+Z oder Strg+Y: Rückgängig / Wiederholen.',
   permissionNoteWin:
     '// Windows: Ausschnitt per Auswahl-Overlay (Esc bricht ab), „Fenster“ nimmt das Fenster im Vordergrund auf — mit Verzögerung bleibt Zeit, es anzuklicken. Alles bleibt lokal in deinem Ablage-Ordner.',
   shortcutErrorNote: 'Kürzel nicht aktiv:',
+  deleteOk: 'Löschen',
+  discardOk: 'Verwerfen',
+  imagesFilter: 'Bilder',
+  metaPx: 'Pixel',
+  metaFile: 'Datei',
+  metaSize: 'Größe',
+  metaDate: 'Datum',
+  locale: 'de-DE',
+  imageLoadError: 'Bild konnte nicht geladen werden:',
+  updateInstallError: 'Update fehlgeschlagen:',
+  regionHint: '// Bereich ziehen · Esc oder Rechtsklick = abbrechen',
+  dismiss: 'Klicken zum Schließen',
+  seconds: 's',
 };
 
 const en: typeof de = {
@@ -156,7 +169,7 @@ const en: typeof de = {
   themeDark: 'Dark',
   themeLight: 'Light',
   libraryDir: 'Library folder',
-  libraryDirHint: 'empty = ~/Pictures/screencap',
+  libraryDirHint: 'empty = ~/Pictures/screencap · full path, ~ allowed',
   choose: 'Choose …',
   format: 'Format',
   delayDefault: 'Default delay (seconds)',
@@ -168,7 +181,7 @@ const en: typeof de = {
   shortcutRegion: 'Capture region',
   shortcutWindow: 'Capture window',
   shortcutScreen: 'Capture screen',
-  shortcutHint: 'e.g. CmdOrCtrl+Shift+7',
+  shortcutHint: 'Syntax e.g. CmdOrCtrl+Shift+7 — CmdOrCtrl = ⌘ on the Mac, Ctrl on Windows',
   permissionNote:
     '// macOS asks for screen-recording permission on the first capture — allow once, done. Everything stays local in your library folder.',
   updates: 'Updates',
@@ -189,10 +202,23 @@ const en: typeof de = {
   discardConfirm: 'Discard unsaved changes?',
   importNone: 'No importable images (PNG/JPG)',
   selectHintWin:
-    'Click an object: drag to move, scale/stretch/squash via corner and edge handles; bend lines/arrows with the round middle handle. Ctrl+D/Ctrl+C+Ctrl+V duplicates, Alt-drag copies, double-click edits text, Del deletes, arrow keys nudge (Shift = 10 px). Ctrl+Z / Ctrl+Shift+Z: undo / redo.',
+    'Click an object: drag to move, scale/stretch/squash via corner and edge handles; bend lines/arrows with the round middle handle. Ctrl+D/Ctrl+C+Ctrl+V duplicates, Alt-drag copies, double-click edits text, Del deletes, arrow keys nudge (Shift = 10 px). Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y: undo / redo.',
   permissionNoteWin:
     '// Windows: region via a selection overlay (Esc cancels), “Window” captures the foreground window — a delay gives you time to click it. Everything stays local in your library folder.',
   shortcutErrorNote: 'Shortcuts not active:',
+  deleteOk: 'Delete',
+  discardOk: 'Discard',
+  imagesFilter: 'Images',
+  metaPx: 'pixels',
+  metaFile: 'file',
+  metaSize: 'size',
+  metaDate: 'date',
+  locale: 'en-US',
+  imageLoadError: 'Could not load the image:',
+  updateInstallError: 'Update failed:',
+  regionHint: '// drag a region · Esc or right-click = cancel',
+  dismiss: 'Click to dismiss',
+  seconds: 's',
 };
 
 export type Dict = typeof de;
