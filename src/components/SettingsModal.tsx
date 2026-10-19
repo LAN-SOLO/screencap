@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
+import { getVersion } from '@tauri-apps/api/app';
 import { api, Settings, UpdateInfo } from '../api';
 import { Dict } from '../i18n';
+import { IS_WINDOWS } from '../platform';
 
-const APP_VERSION = '0.2.0';
+// Fallback, falls getVersion() (tauri.conf.json) nicht verfügbar ist
+const APP_VERSION = '1.0.0';
 
 export function SettingsModal({
   settings,
@@ -14,17 +17,34 @@ export function SettingsModal({
   settings: Settings;
   t: Dict;
   onClose: () => void;
-  onSave: (s: Settings) => void;
+  onSave: (s: Settings) => Promise<void>;
 }) {
   const [s, setS] = useState<Settings>({ ...settings });
   const [libPath, setLibPath] = useState('');
   const [updState, setUpdState] = useState<'idle' | 'checking' | 'none' | 'error'>('idle');
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [version, setVersion] = useState(APP_VERSION);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [shortcutError, setShortcutError] = useState<string | null>(null);
 
   useEffect(() => {
     api.libraryPath().then(setLibPath).catch(() => {});
+    getVersion().then(setVersion).catch(() => {});
+    api
+      .appStatus()
+      .then((st) => setShortcutError(st.shortcutError))
+      .catch(() => {});
   }, []);
+
+  const doSave = () => {
+    setSaving(true);
+    setSaveError(null);
+    onSave(s)
+      .catch((e) => setSaveError(String(e)))
+      .finally(() => setSaving(false));
+  };
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     setS((prev) => ({ ...prev, [key]: value }));
@@ -105,7 +125,9 @@ export function SettingsModal({
             min={0}
             max={60}
             value={s.delayDefault}
-            onChange={(e) => set('delayDefault', Math.max(0, Number(e.target.value) || 0))}
+            onChange={(e) =>
+              set('delayDefault', Math.min(60, Math.max(0, Math.round(Number(e.target.value)) || 0)))
+            }
           />
         </label>
 
@@ -125,14 +147,16 @@ export function SettingsModal({
           />
           {t.openEditorAfter}
         </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={s.windowShadow}
-            onChange={(e) => set('windowShadow', e.target.checked)}
-          />
-          {t.windowShadow}
-        </label>
+        {!IS_WINDOWS && (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={s.windowShadow}
+              onChange={(e) => set('windowShadow', e.target.checked)}
+            />
+            {t.windowShadow}
+          </label>
+        )}
         <label className="check">
           <input
             type="checkbox"
@@ -169,12 +193,17 @@ export function SettingsModal({
           />
         </label>
         <div className="note">{t.shortcutHint}</div>
+        {shortcutError && (
+          <div className="note" style={{ color: 'var(--red)' }}>
+            {t.shortcutErrorNote} {shortcutError}
+          </div>
+        )}
 
         <div className="sep" />
         <div className="fieldlabel">{t.updates}</div>
         <div className="updatebox">
           <span>
-            {t.version} {APP_VERSION}
+            {t.version} {version}
           </span>
           <button onClick={checkUpdates} disabled={updState === 'checking'}>
             {updState === 'checking' ? t.checking : t.checkUpdates}
@@ -201,16 +230,21 @@ export function SettingsModal({
         </div>
         {update?.notes && <div className="note">{update.notes}</div>}
 
-        <div className="note">{t.permissionNote}</div>
+        <div className="note">{IS_WINDOWS ? t.permissionNoteWin : t.permissionNote}</div>
+        {saveError && (
+          <div className="note" style={{ color: 'var(--red)' }}>
+            {saveError}
+          </div>
+        )}
 
         <div className="btnrow">
           <button onClick={onClose}>{t.cancel}</button>
           <button
             className="primary"
             disabled={
-              !s.shortcutRegion.trim() || !s.shortcutWindow.trim() || !s.shortcutScreen.trim()
+              saving || !s.shortcutRegion.trim() || !s.shortcutWindow.trim() || !s.shortcutScreen.trim()
             }
-            onClick={() => onSave(s)}
+            onClick={doSave}
           >
             {t.save}
           </button>

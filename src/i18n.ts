@@ -34,7 +34,7 @@ const de = {
   back: 'Bibliothek',
   toolSelect: 'Auswählen & Verschieben',
   selectHint:
-    'Objekt anklicken: verschieben, über Eck-/Kanten-Anfasser skalieren, dehnen und stauchen; Linien/Pfeile am runden Mittel-Anfasser biegen. ⌘D/⌘C+⌘V dupliziert, ⌥-Ziehen kopiert, Doppelklick bearbeitet Text, Entf löscht, Pfeiltasten verschieben (Shift = 10 px).',
+    'Objekt anklicken: verschieben, über Eck-/Kanten-Anfasser skalieren, dehnen und stauchen; Linien/Pfeile am runden Mittel-Anfasser biegen. ⌘D/⌘C+⌘V dupliziert, ⌥-Ziehen kopiert, Doppelklick bearbeitet Text, Entf löscht, Pfeiltasten verschieben (Shift = 10 px). ⌘Z / ⌘⇧Z: Rückgängig / Wiederholen.',
   toolPen: 'Stift',
   toolLine: 'Linie',
   toolArrow: 'Pfeil',
@@ -90,6 +90,14 @@ const de = {
   updateInstall: 'Laden & installieren',
   updateLater: 'Später',
   updateInstalling: 'Installiere …',
+  revealWin: 'Im Explorer zeigen',
+  discardConfirm: 'Ungespeicherte Änderungen verwerfen?',
+  importNone: 'Keine importierbaren Bilder (PNG/JPG)',
+  selectHintWin:
+    'Objekt anklicken: verschieben, über Eck-/Kanten-Anfasser skalieren, dehnen und stauchen; Linien/Pfeile am runden Mittel-Anfasser biegen. Ctrl+D/Ctrl+C+Ctrl+V dupliziert, Alt-Ziehen kopiert, Doppelklick bearbeitet Text, Entf löscht, Pfeiltasten verschieben (Shift = 10 px). Ctrl+Z / Ctrl+Shift+Z: Rückgängig / Wiederholen.',
+  permissionNoteWin:
+    '// Windows: Ausschnitt per Auswahl-Overlay (Esc bricht ab), „Fenster“ nimmt das Fenster im Vordergrund auf — mit Verzögerung bleibt Zeit, es anzuklicken. Alles bleibt lokal in deinem Ablage-Ordner.',
+  shortcutErrorNote: 'Kürzel nicht aktiv:',
 };
 
 const en: typeof de = {
@@ -122,7 +130,7 @@ const en: typeof de = {
   back: 'Library',
   toolSelect: 'Select & move',
   selectHint:
-    'Click an object: drag to move, scale/stretch/squash via corner and edge handles; bend lines/arrows with the round middle handle. ⌘D/⌘C+⌘V duplicates, ⌥-drag copies, double-click edits text, Del deletes, arrow keys nudge (Shift = 10 px).',
+    'Click an object: drag to move, scale/stretch/squash via corner and edge handles; bend lines/arrows with the round middle handle. ⌘D/⌘C+⌘V duplicates, ⌥-drag copies, double-click edits text, Del deletes, arrow keys nudge (Shift = 10 px). ⌘Z / ⌘⇧Z: undo / redo.',
   toolPen: 'Pen',
   toolLine: 'Line',
   toolArrow: 'Arrow',
@@ -177,6 +185,14 @@ const en: typeof de = {
   updateInstall: 'Download & install',
   updateLater: 'Later',
   updateInstalling: 'Installing …',
+  revealWin: 'Show in Explorer',
+  discardConfirm: 'Discard unsaved changes?',
+  importNone: 'No importable images (PNG/JPG)',
+  selectHintWin:
+    'Click an object: drag to move, scale/stretch/squash via corner and edge handles; bend lines/arrows with the round middle handle. Ctrl+D/Ctrl+C+Ctrl+V duplicates, Alt-drag copies, double-click edits text, Del deletes, arrow keys nudge (Shift = 10 px). Ctrl+Z / Ctrl+Shift+Z: undo / redo.',
+  permissionNoteWin:
+    '// Windows: region via a selection overlay (Esc cancels), “Window” captures the foreground window — a delay gives you time to click it. Everything stays local in your library folder.',
+  shortcutErrorNote: 'Shortcuts not active:',
 };
 
 export type Dict = typeof de;

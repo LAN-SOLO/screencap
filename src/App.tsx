@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { api, Filter, Settings, Shot, UpdateInfo } from './api';
 import { dicts, Lang } from './i18n';
+import { IS_WINDOWS, systemLang } from './platform';
 import { Editor } from './components/Editor';
 import { SettingsModal } from './components/SettingsModal';
 import { Help } from './components/Help';
@@ -20,25 +21,30 @@ import {
 
 const thumbCache = new Map<string, string>();
 
-function Thumb({ id }: { id: string }) {
-  const [src, setSrc] = useState<string | null>(thumbCache.get(id) ?? null);
+// Cache-Schlüssel enthält Datei, Maße und Größe: nach „Speichern“ (Überschreiben)
+// ändert sich mindestens eins davon, das alte Thumbnail fliegt damit raus.
+const thumbKey = (s: Shot) => `${s.id}|${s.file}|${s.width}x${s.height}|${s.sizeBytes}`;
+
+function Thumb({ shot }: { shot: Shot }) {
+  const key = thumbKey(shot);
+  const [src, setSrc] = useState<string | null>(thumbCache.get(key) ?? null);
   useEffect(() => {
     let alive = true;
-    if (thumbCache.has(id)) {
-      setSrc(thumbCache.get(id)!);
+    if (thumbCache.has(key)) {
+      setSrc(thumbCache.get(key)!);
       return;
     }
     api
-      .getThumb(id)
+      .getThumb(shot.id)
       .then((data) => {
-        thumbCache.set(id, data);
+        thumbCache.set(key, data);
         if (alive) setSrc(data);
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [key, shot.id]);
   return src ? <img src={src} alt="" /> : null;
 }
 
@@ -69,9 +75,14 @@ export default function App() {
   const toastTimer = useRef<number | undefined>(undefined);
   const shotsRef = useRef<Shot[]>([]);
   shotsRef.current = shots;
+  // ungespeicherte Editor-Änderungen (vom Editor gemeldet)
+  const dirtyRef = useRef(false);
+  const tRef = useRef(dicts.de);
 
   const lang: Lang = settings?.language ?? 'de';
   const t = dicts[lang];
+  tRef.current = t;
+  const revealLabel = IS_WINDOWS ? t.revealWin : t.reveal;
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -84,7 +95,14 @@ export default function App() {
   }, [query, filter]);
 
   useEffect(() => {
-    api.getSettings().then((s) => {
+    Promise.all([api.getSettings(), api.appStatus().catch(() => null)]).then(([s, status]) => {
+      // erster Start: Sprache des Systems übernehmen (GUI-Apps sehen unter
+      // macOS/Windows kein $LANG — die WebView kennt die Systemsprache)
+      if (status?.firstRun && s.language !== systemLang()) {
+        const adopted = { ...s, language: systemLang() };
+        api.setSettings(adopted).catch(() => {});
+        s = adopted;
+      }
       setSettings(s);
       setDelay(s.delayDefault);
     });
@@ -114,7 +132,7 @@ export default function App() {
         // the library event may arrive after this one — fetch fresh
         api.listShots('', 'all').then((all) => {
           const s = all.find((x) => x.id === e.payload);
-          if (s) setEditorShot(s);
+          if (s) openEditor(s);
         });
       }),
     ];
@@ -132,6 +150,16 @@ export default function App() {
     }
   }, [shots, editorShot]);
 
+  // Editor verlassen/wechseln — bei ungespeicherten Änderungen erst fragen
+  async function openEditor(next: Shot | null) {
+    if (dirtyRef.current) {
+      const { confirm } = await import('@tauri-apps/plugin-dialog');
+      if (!(await confirm(tRef.current.discardConfirm))) return;
+    }
+    dirtyRef.current = false;
+    setEditorShot(next);
+  }
+
   const capture = (kind: 'region' | 'window' | 'screen') => {
     api.capture(kind, delay).catch((e) => showToast(String(e)));
   };
@@ -139,12 +167,16 @@ export default function App() {
   const doImport = async () => {
     const picked = await open({
       multiple: true,
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }],
     });
     if (!picked) return;
     const paths = Array.isArray(picked) ? picked : [picked];
-    const n = await api.importFiles(paths as string[]);
-    showToast(`${n} ${t.imported}`);
+    try {
+      const n = await api.importFiles(paths as string[]);
+      showToast(n > 0 ? `${n} ${t.imported}` : t.importNone);
+    } catch (e) {
+      showToast(String(e));
+    }
   };
 
   const filters: { key: Filter; label: string }[] = [
@@ -209,8 +241,11 @@ export default function App() {
         <Editor
           shot={editorShot}
           t={t}
-          onBack={() => setEditorShot(null)}
+          onBack={() => openEditor(null)}
           onShotChanged={(s) => setEditorShot(s)}
+          onDirtyChange={(d) => {
+            dirtyRef.current = d;
+          }}
           showToast={showToast}
         />
       ) : (
@@ -234,9 +269,9 @@ export default function App() {
               <div className="empty">{query || filter !== 'all' ? t.emptyFiltered : t.empty}</div>
             )}
             {shots.map((s) => (
-              <div key={s.id} className="card" onClick={() => setEditorShot(s)}>
+              <div key={s.id} className="card" onClick={() => openEditor(s)}>
                 <div className="thumbwrap">
-                  <Thumb id={s.id} />
+                  <Thumb shot={s} />
                   {s.favorite && (
                     <span className="fav">
                       <IconStar filled size={16} />
@@ -248,7 +283,10 @@ export default function App() {
                       title={t.copy}
                       onClick={(e) => {
                         e.stopPropagation();
-                        api.copyShot(s.id).then(() => showToast(t.copied));
+                        api
+                          .copyShot(s.id)
+                          .then(() => showToast(t.copied))
+                          .catch((err) => showToast(String(err)));
                       }}
                     >
                       <IconCopy />
@@ -258,17 +296,17 @@ export default function App() {
                       title={t.favorite}
                       onClick={(e) => {
                         e.stopPropagation();
-                        api.setFavorite(s.id, !s.favorite);
+                        api.setFavorite(s.id, !s.favorite).catch((err) => showToast(String(err)));
                       }}
                     >
                       <IconStar filled={s.favorite} />
                     </button>
                     <button
                       className="icon"
-                      title={t.reveal}
+                      title={revealLabel}
                       onClick={(e) => {
                         e.stopPropagation();
-                        api.revealShot(s.id);
+                        api.revealShot(s.id).catch((err) => showToast(String(err)));
                       }}
                     >
                       <IconFolder />
@@ -279,7 +317,8 @@ export default function App() {
                       onClick={async (e) => {
                         e.stopPropagation();
                         const { confirm } = await import('@tauri-apps/plugin-dialog');
-                        if (await confirm(t.deleteConfirm)) api.deleteShot(s.id);
+                        if (await confirm(t.deleteConfirm))
+                          api.deleteShot(s.id).catch((err) => showToast(String(err)));
                       }}
                     >
                       <IconTrash />
@@ -316,14 +355,15 @@ export default function App() {
           settings={settings}
           t={t}
           onClose={() => setShowSettings(false)}
-          onSave={(s) => {
-            api.setSettings(s).then(() => {
-              setSettings(s);
-              setDelay(s.delayDefault);
-              setShowSettings(false);
-              thumbCache.clear();
-              refresh();
-            });
+          onSave={async (s) => {
+            // Fehler (z. B. Kürzel belegt, Ordner nicht beschreibbar) zeigt der Dialog an
+            await api.setSettings(s);
+            const saved = await api.getSettings();
+            setSettings(saved);
+            setDelay(saved.delayDefault);
+            setShowSettings(false);
+            thumbCache.clear();
+            refresh();
           }}
         />
       )}

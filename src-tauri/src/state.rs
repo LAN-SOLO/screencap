@@ -11,6 +11,10 @@ pub struct AppState {
     /// Set while a region capture waits for the selection overlay
     /// (Windows); the `region_result` command reports through it.
     pub region_tx: Mutex<Option<Sender<Option<RegionSel>>>>,
+    /// Last global-shortcut registration error (shown in Settings).
+    pub shortcut_error: Mutex<Option<String>>,
+    /// No settings file existed at startup.
+    pub first_run: bool,
 }
 
 impl AppState {
@@ -35,18 +39,17 @@ impl AppState {
         let _ = screencap_core::save_library(&lib, &self.index_path());
     }
 
-    /// Image files (by extension) currently in the library folder.
+    /// Image files (PNG/JPG, regular files only — no symlinked folders)
+    /// currently in the library folder.
     pub fn files_on_disk(&self) -> Vec<String> {
         let mut out = Vec::new();
         if let Ok(entries) = std::fs::read_dir(self.lib_dir()) {
             for e in entries.flatten() {
-                let name = e.file_name().to_string_lossy().to_string();
-                let lower = name.to_lowercase();
-                if lower.ends_with(".png")
-                    || lower.ends_with(".jpg")
-                    || lower.ends_with(".jpeg")
-                    || lower.ends_with(".webp")
-                {
+                let is_file = e.file_type().map(|t| t.is_file()).unwrap_or(false);
+                let Some(name) = e.file_name().to_str().map(str::to_string) else {
+                    continue; // non-UTF-8 names can't round-trip through the index
+                };
+                if is_file && screencap_core::is_library_image(&name) {
                     out.push(name);
                 }
             }

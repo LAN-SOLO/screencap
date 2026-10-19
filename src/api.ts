@@ -37,6 +37,11 @@ export interface UpdateInfo {
   date: string | null;
 }
 
+export interface AppStatus {
+  firstRun: boolean;
+  shortcutError: string | null;
+}
+
 export const api = {
   capture: (kind: 'region' | 'window' | 'screen', delay?: number) =>
     invoke<string | null>('capture', { kind, delay: delay ?? null }),
@@ -58,6 +63,7 @@ export const api = {
   libraryPath: () => invoke<string>('library_path'),
   getSettings: () => invoke<Settings>('get_settings'),
   setSettings: (s: Settings) => invoke<void>('set_settings', { new: s }),
+  appStatus: () => invoke<AppStatus>('app_status'),
   checkUpdate: () => invoke<UpdateInfo | null>('check_update'),
   installUpdate: () => invoke<void>('install_update'),
 };

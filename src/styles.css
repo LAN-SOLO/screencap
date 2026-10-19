@@ -289,6 +289,8 @@ label.check input { width: auto; }
   cursor: pointer;
 }
 .colorbtn.active { border-color: var(--text); }
+/* fast schwarzes Farbfeld (#111827) im Dunkel-Modus sonst unsichtbar */
+.colorbtn:not(.active) { box-shadow: inset 0 0 0 1px var(--border); }
 .widthbtn { font-family: var(--mono); font-size: 11px; }
 .textinput-float {
   position: absolute;

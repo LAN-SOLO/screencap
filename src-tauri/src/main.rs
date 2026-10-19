@@ -48,51 +48,36 @@ pub fn register_shortcuts(app: &AppHandle, s: &Settings) -> Result<(), String> {
     Ok(())
 }
 
-fn build_tray(app: &tauri::App, s: &Settings) -> tauri::Result<()> {
+fn tray_menu<R: tauri::Runtime, M: Manager<R>>(app: &M, s: &Settings) -> tauri::Result<Menu<R>> {
     let de = s.language == "de";
-    let cap_region = MenuItem::with_id(
-        app,
-        "cap_region",
-        if de { "Ausschnitt aufnehmen" } else { "Capture region" },
-        true,
-        None::<&str>,
-    )?;
-    let cap_window = MenuItem::with_id(
-        app,
-        "cap_window",
-        if de { "Fenster aufnehmen" } else { "Capture window" },
-        true,
-        None::<&str>,
-    )?;
-    let cap_screen = MenuItem::with_id(
-        app,
-        "cap_screen",
-        if de { "Bildschirm aufnehmen" } else { "Capture screen" },
-        true,
-        None::<&str>,
-    )?;
-    let show = MenuItem::with_id(
-        app,
-        "show",
-        if de { "screencap öffnen" } else { "Open screencap" },
-        true,
-        None::<&str>,
-    )?;
-    let quit = MenuItem::with_id(
-        app,
-        "quit",
-        if de { "screencap beenden" } else { "Quit screencap" },
-        true,
-        None::<&str>,
-    )?;
+    let item = |id: &str, de_label: &str, en_label: &str| {
+        MenuItem::with_id(app, id, if de { de_label } else { en_label }, true, None::<&str>)
+    };
+    let cap_region = item("cap_region", "Ausschnitt aufnehmen", "Capture region")?;
+    let cap_window = item("cap_window", "Fenster aufnehmen", "Capture window")?;
+    let cap_screen = item("cap_screen", "Bildschirm aufnehmen", "Capture screen")?;
+    let show = item("show", "screencap öffnen", "Open screencap")?;
+    let quit = item("quit", "screencap beenden", "Quit screencap")?;
     let sep = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(
+    Menu::with_items(
         app,
         &[&cap_region, &cap_window, &cap_screen, &sep, &show, &sep2, &quit],
-    )?;
+    )
+}
+
+/// Language switch in Settings: relabel the tray menu right away.
+pub fn update_tray_language(app: &AppHandle, s: &Settings) {
+    if let (Some(tray), Ok(menu)) = (app.tray_by_id("main"), tray_menu(app, s)) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
+fn build_tray(app: &tauri::App, s: &Settings) -> tauri::Result<()> {
+    let menu = tray_menu(app, s)?;
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
+        .tooltip("screencap")
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -120,19 +105,24 @@ fn main() {
         ))
         .setup(|app| {
             let handle = app.handle().clone();
-            let s = settings::load(&handle);
+            let (s, existed) = settings::load(&handle);
             let lib_dir = s.resolved_library_dir();
-            std::fs::create_dir_all(&lib_dir)?;
-            let lib = screencap_core::load_library(&lib_dir.join("index.json")).unwrap_or_default();
+            // a vanished custom folder (unplugged drive …) must not kill the
+            // app at startup — the folder is re-created on first use
+            let _ = std::fs::create_dir_all(&lib_dir);
+            let lib = screencap_core::load_library_or_recover(&lib_dir.join("index.json"));
             app.manage(AppState {
                 lib: Mutex::new(lib),
                 settings: Mutex::new(s.clone()),
                 region_tx: Mutex::new(None),
+                shortcut_error: Mutex::new(None),
+                first_run: !existed,
             });
             commands::sync_library_internal(&handle);
             build_tray(app, &s)?;
             if let Err(e) = register_shortcuts(&handle, &s) {
                 eprintln!("screencap: {e}");
+                *app.state::<AppState>().shortcut_error.lock().unwrap() = Some(e);
             }
             Ok(())
         })
@@ -164,6 +154,7 @@ fn main() {
             commands::library_path,
             commands::get_settings,
             commands::set_settings,
+            commands::app_status,
             commands::check_update,
             commands::install_update,
         ])

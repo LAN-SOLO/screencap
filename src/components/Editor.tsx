@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, Shot } from '../api';
 import { Dict } from '../i18n';
+import { IS_WINDOWS } from '../platform';
 import {
   IconArrow,
   IconCopy,
@@ -429,12 +430,15 @@ export function Editor({
   t,
   onBack,
   onShotChanged,
+  onDirtyChange,
   showToast,
 }: {
   shot: Shot;
   t: Dict;
   onBack: () => void;
   onShotChanged: (s: Shot | null) => void;
+  /** meldet ungespeicherte Änderungen, damit die App vor dem Verwerfen fragt */
+  onDirtyChange?: (dirty: boolean) => void;
   showToast: (msg: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -459,7 +463,25 @@ export function Editor({
   const [tags, setTags] = useState(shot.tags.join(', '));
   const [dirty, setDirty] = useState(false);
 
+  // Name/Tags folgen der angezeigten Aufnahme (z. B. nach „Als Kopie speichern“
+  // oder einem Wechsel per Aufnahme), nicht nur dem ersten Mount
+  useEffect(() => {
+    setName(shot.name);
+  }, [shot.id, shot.name]);
+  const tagsKey = shot.tags.join(', ');
+  useEffect(() => {
+    setTags(tagsKey);
+  }, [shot.id, tagsKey]);
+
+  const dirtyCb = useRef(onDirtyChange);
+  dirtyCb.current = onDirtyChange;
+  useEffect(() => {
+    dirtyCb.current?.(dirty);
+  }, [dirty]);
+  useEffect(() => () => dirtyCb.current?.(false), []);
+
   const setTool = (next: Tool) => {
+    if (textPos) commitText(); // offenen Text nicht verlieren
     setToolState(next);
     if (next !== 'crop') setCropDraft(null);
     if (next !== 'select') setSelectedIdx(null);
@@ -792,6 +814,17 @@ export function Editor({
         return;
       }
       const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redo();
+        return;
+      }
       if (mod && e.key.toLowerCase() === 'v' && clipRef.current) {
         e.preventDefault();
         const copy = moveShape(cloneShape(clipRef.current), 16, 16);
@@ -826,16 +859,33 @@ export function Editor({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedIdx, shapes, commitShapes, cropDraft, onBack]);
+  });
 
-  const bakeToCanvas = (): HTMLCanvasElement => {
+  /** Objekte inkl. eines gerade offenen (noch nicht bestätigten) Textfelds. */
+  const withPendingText = (): Shape[] => {
+    if (textEditIdx != null && shapes[textEditIdx]) {
+      const next = [...shapes];
+      if (textValue.trim()) next[textEditIdx] = { ...next[textEditIdx], text: textValue };
+      else next.splice(textEditIdx, 1);
+      return next;
+    }
+    if (textPos && textValue.trim()) {
+      return [
+        ...shapes,
+        { tool: 'text', color, width, x1: textPos.x, y1: textPos.y, x2: textPos.x, y2: textPos.y, text: textValue },
+      ];
+    }
+    return shapes;
+  };
+
+  const bakeToCanvas = (list: Shape[] = withPendingText()): HTMLCanvasElement => {
     const base = baseRef.current!;
     const out = document.createElement('canvas');
     out.width = base.width;
     out.height = base.height;
     const ctx = out.getContext('2d')!;
     ctx.drawImage(base, 0, 0);
-    for (const s of shapes) drawShape(ctx, s, base);
+    for (const s of list) drawShape(ctx, s, base);
     return out;
   };
 
@@ -903,7 +953,9 @@ export function Editor({
   const activeWidth = selectedIdx != null && shapes[selectedIdx] ? shapes[selectedIdx].width : width;
 
   const save = (mode: 'overwrite' | 'copy') => {
-    const dataUrl = bakeToCanvas().toDataURL('image/png');
+    const list = withPendingText();
+    if (textPos) commitText();
+    const dataUrl = bakeToCanvas(list).toDataURL('image/png');
     const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
     api
       .saveEdit(shot.id, b64, mode)
@@ -993,10 +1045,10 @@ export function Editor({
           </>
         )}
         <span style={{ flex: 1 }} />
-        <button onClick={() => save('copy')} disabled={!dirty}>
+        <button onClick={() => save('copy')} disabled={!dirty && !textValue.trim()}>
           {t.saveCopy}
         </button>
-        <button className="primary" onClick={() => save('overwrite')} disabled={!dirty}>
+        <button className="primary" onClick={() => save('overwrite')} disabled={!dirty && !textValue.trim()}>
           {t.saveOverwrite}
         </button>
       </div>
@@ -1067,17 +1119,26 @@ export function Editor({
             <button
               className={shot.favorite ? 'active' : ''}
               onClick={() => {
-                api.setFavorite(shot.id, !shot.favorite);
-                onShotChanged({ ...shot, favorite: !shot.favorite });
+                api
+                  .setFavorite(shot.id, !shot.favorite)
+                  .then(() => onShotChanged({ ...shot, favorite: !shot.favorite }))
+                  .catch((e) => showToast(String(e)));
               }}
             >
               <IconStar filled={shot.favorite} /> {t.favorite}
             </button>
-            <button onClick={() => api.copyShot(shot.id).then(() => showToast(t.copied))}>
+            <button
+              onClick={() =>
+                api
+                  .copyShot(shot.id)
+                  .then(() => showToast(t.copied))
+                  .catch((e) => showToast(String(e)))
+              }
+            >
               <IconCopy /> {t.copy}
             </button>
-            <button onClick={() => api.revealShot(shot.id)}>
-              <IconFolder /> {t.reveal}
+            <button onClick={() => api.revealShot(shot.id).catch((e) => showToast(String(e)))}>
+              <IconFolder /> {IS_WINDOWS ? t.revealWin : t.reveal}
             </button>
             <button
               className="danger"
@@ -1086,7 +1147,10 @@ export function Editor({
                 // native dialog plugin like the other LAN-SOLO apps
                 const { confirm } = await import('@tauri-apps/plugin-dialog');
                 if (await confirm(t.deleteConfirm)) {
-                  api.deleteShot(shot.id).then(() => onShotChanged(null));
+                  api
+                    .deleteShot(shot.id)
+                    .then(() => onShotChanged(null))
+                    .catch((e) => showToast(String(e)));
                 }
               }}
             >
@@ -1105,7 +1169,7 @@ export function Editor({
             <span className="k">date</span>
             <span>{new Date(shot.capturedAt).toLocaleString()}</span>
           </div>
-          <div className="note">{t.selectHint}</div>
+          <div className="note">{IS_WINDOWS ? t.selectHintWin : t.selectHint}</div>
           <div className="note">{t.pixelateNote}</div>
         </div>
       </div>

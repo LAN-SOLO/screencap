@@ -20,7 +20,7 @@ pub fn make_thumb(src: &Path, thumb_path: &Path) {
     }
 }
 
-fn unique_file_name(dir: &Path, stem: &str, ext: &str) -> String {
+pub fn unique_file_name(dir: &Path, stem: &str, ext: &str) -> String {
     let mut name = format!("{stem}.{ext}");
     let mut n = 2;
     while dir.join(&name).exists() {
@@ -80,6 +80,7 @@ fn run_screencapture(
 /// Region the selection overlay reported back (physical pixels, relative to
 /// the captured monitor). `None` = the user cancelled (Esc / empty drag).
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub struct RegionSel {
     pub x: u32,
     pub y: u32,
@@ -219,6 +220,21 @@ fn run_screencapture(
     Err("Aufnahme ist bisher nur unter macOS und Windows umgesetzt".into())
 }
 
+/// What a finished capture run means: `Ok(true)` = a file to file away,
+/// `Ok(false)` = nothing to do (cancelled), `Err` = a real failure.
+/// `screencapture -i` exits non-zero when the user presses Esc, so for the
+/// interactive kinds a missing file is a cancel, not an error.
+pub fn capture_outcome(kind: ShotKind, captured: bool, result: Result<(), String>) -> Result<bool, String> {
+    if captured {
+        return Ok(true);
+    }
+    match (kind, result) {
+        (ShotKind::Region | ShotKind::Window, _) => Ok(false),
+        (_, Err(e)) => Err(e),
+        (_, Ok(())) => Ok(false),
+    }
+}
+
 /// Runs a capture and files the result. Returns None if the user cancelled.
 /// Blocking — call from a worker thread / spawn_blocking.
 pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result<Option<Uuid>, String> {
@@ -233,7 +249,7 @@ pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result
             s.open_editor_after,
         )
     };
-    let delay = delay.unwrap_or(default_delay);
+    let delay = delay.unwrap_or(default_delay).min(crate::settings::MAX_DELAY);
     let dir = st.lib_dir();
     let stem = Local::now().format("screencap-%Y%m%d-%H%M%S").to_string();
     let file = unique_file_name(&dir, &stem, &format);
@@ -261,8 +277,7 @@ pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result
             let _ = w.set_focus();
         }
     }
-    result?;
-    if !captured {
+    if !capture_outcome(kind, captured, result)? {
         return Ok(None); // user hit Esc
     }
 
@@ -282,4 +297,54 @@ pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result
         let _ = app.emit("open-editor", id);
     }
     Ok(Some(id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn esc_on_interactive_capture_is_a_cancel() {
+        let err = || Err("screencapture meldete einen Fehler".to_string());
+        assert_eq!(capture_outcome(ShotKind::Region, false, err()), Ok(false));
+        assert_eq!(capture_outcome(ShotKind::Window, false, err()), Ok(false));
+        assert_eq!(capture_outcome(ShotKind::Region, false, Ok(())), Ok(false));
+    }
+
+    #[test]
+    fn screen_failure_is_reported() {
+        assert!(capture_outcome(ShotKind::Screen, false, Err("x".into())).is_err());
+        assert_eq!(capture_outcome(ShotKind::Screen, false, Ok(())), Ok(false));
+    }
+
+    #[test]
+    fn a_written_file_always_counts() {
+        assert_eq!(capture_outcome(ShotKind::Screen, true, Err("x".into())), Ok(true));
+        assert_eq!(capture_outcome(ShotKind::Region, true, Ok(())), Ok(true));
+    }
+
+    #[test]
+    fn unique_names_count_up() {
+        let dir = std::env::temp_dir().join(format!("screencap-cap-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(unique_file_name(&dir, "shot", "png"), "shot.png");
+        std::fs::write(dir.join("shot.png"), b"x").unwrap();
+        assert_eq!(unique_file_name(&dir, "shot", "png"), "shot-2.png");
+        std::fs::write(dir.join("shot-2.png"), b"x").unwrap();
+        assert_eq!(unique_file_name(&dir, "shot", "png"), "shot-3.png");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn thumbnail_is_bounded() {
+        let dir = std::env::temp_dir().join(format!("screencap-cap-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("big.png");
+        image::RgbaImage::from_pixel(1600, 400, image::Rgba([10, 20, 30, 255])).save(&src).unwrap();
+        let thumb = dir.join("t.png");
+        make_thumb(&src, &thumb);
+        let (w, h) = image::image_dimensions(&thumb).unwrap();
+        assert_eq!((w, h), (THUMB_MAX, 128));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

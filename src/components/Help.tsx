@@ -63,6 +63,7 @@ const de: Content = {
         '• Bildschirm (Cmd+Shift+9) — der ganze Monitor',
         'Das Dropdown daneben stellt eine Verzögerung ein (3/5/10 s) — praktisch für Menüs und Tooltips.',
         'Wichtig: Beim allerersten Mal fragt macOS nach der Bildschirmaufnahme-Freigabe — einmal erlauben, fertig.',
+        'Unter Windows heißen die Kürzel Ctrl+Shift+7/8/9; der Ausschnitt wird über ein abgedunkeltes Auswahl-Overlay aufgezogen.',
       ],
     },
     {
@@ -73,7 +74,7 @@ const de: Content = {
         '• Auswahl-Werkzeug: jedes Objekt bleibt bis zum Speichern voll editierbar — verschieben, über Eck- und Kanten-Anfasser skalieren, dehnen und stauchen, Linien/Pfeile biegen, duplizieren (⌘D, ⌥-Ziehen), Farbe/Stärke nachträglich wechseln',
         '• Verpixeln: Bereich aufziehen — beim Speichern fest ins Bild gerechnet, keine abnehmbare Ebene',
         '• Zuschneiden: Bereich wählen, „Zuschnitt anwenden“',
-        'Undo/Redo jederzeit; gespeichert wird erst, wenn du „Speichern“ oder „Als Kopie speichern“ klickst.',
+        'Undo/Redo jederzeit (⌘Z / ⌘⇧Z, unter Windows Ctrl+Z / Ctrl+Shift+Z); gespeichert wird erst, wenn du „Speichern“ oder „Als Kopie speichern“ klickst. Wer den Editor mit ungespeicherten Änderungen verlässt, wird vorher gefragt.',
       ],
     },
     {
@@ -82,7 +83,7 @@ const de: Content = {
         'Jede Aufnahme landet als Karte in der Galerie — mit Thumbnail, Name, Größe und Datum.',
         '• Suche findet Namen, Dateinamen und Tags',
         '• Filter-Chips: Favoriten, Ausschnitte, Fenster, Bildschirme, Bearbeitet',
-        '• Karten-Aktionen (bei Maus darüber): Kopieren, Favorit, Im Finder zeigen, Löschen',
+        '• Karten-Aktionen (bei Maus darüber): Kopieren, Favorit, Im Finder zeigen (Windows: Explorer), Löschen',
         'Klick auf eine Karte öffnet den Editor mit Name, Tags und Details.',
       ],
     },
@@ -108,11 +109,13 @@ const de: Content = {
       body: [
         'Drei Aufnahmearten — per Button in der Kopfzeile, über das Tray-Menü oder global per Kürzel:',
         '• Ausschnitt (Cmd/Ctrl+Shift+7) — Bereich mit der Maus aufziehen; Esc bricht ab',
-        '• Fenster (Cmd/Ctrl+Shift+8) — gewünschtes Fenster anklicken; mit Fensterschatten (abschaltbar)',
+        '• Fenster (Cmd/Ctrl+Shift+8) — macOS: gewünschtes Fenster anklicken (Esc bricht ab), mit Fensterschatten (abschaltbar)',
         '• Bildschirm (Cmd/Ctrl+Shift+9) — der komplette Monitor, sofort',
         'Verzögerung: Das Dropdown neben den Buttons wartet 3, 5 oder 10 Sekunden vor der Aufnahme — Zeit, um Menüs zu öffnen. Die Standard-Verzögerung für Kürzel stellst du in den Einstellungen ein.',
         'Das screencap-Fenster versteckt sich während der Aufnahme automatisch, damit es nicht mit aufs Bild kommt.',
         'macOS fragt bei der ersten Aufnahme nach der Bildschirmaufnahme-Freigabe (Systemeinstellungen → Datenschutz & Sicherheit → Bildschirmaufnahme) — einmal erlauben genügt.',
+        'Windows: Ausschnitt — über dem Bildschirm unter dem Mauszeiger erscheint ein abgedunkeltes Overlay; Bereich ziehen, Esc oder Rechtsklick bricht ab, die Größe in Pixeln steht unter der Auswahl. Fenster — aufgenommen wird das Fenster im Vordergrund (ohne Schatten); mit Verzögerung bleibt Zeit, das gewünschte Fenster anzuklicken. Bildschirm — der Monitor unter dem Mauszeiger.',
+        'Linux: Aufnahme ist noch nicht umgesetzt — Bibliothek und Editor funktionieren, die Aufnahme-Knöpfe melden einen Fehler.',
       ],
     },
     {
@@ -128,9 +131,11 @@ const de: Content = {
         '• Text — klicken, tippen, Enter bestätigt (Shift+Enter für Zeilenumbruch, Esc bricht ab)',
         '• Verpixeln — Bereich aufziehen; wird beim Speichern unwiderruflich ins Bild gerechnet',
         '• Zuschneiden — Bereich wählen, dann „Zuschnitt anwenden“',
-        'Dazu: 6 Farben, 3 Strichstärken (2/4/8 px) sowie Undo/Redo über die beiden Pfeil-Knöpfe in der Leiste.',
+        'Dazu: 6 Farben, 3 Strichstärken (2/4/8 px) sowie Undo/Redo über die beiden Pfeil-Knöpfe in der Leiste oder per ⌘Z / ⌘⇧Z (Windows: Ctrl+Z / Ctrl+Shift+Z oder Ctrl+Y).',
+        'Unter Windows gilt Ctrl statt ⌘ und Alt statt ⌥.',
         'Hinweis: ⌘C/⌘V und ⌥-Ziehen duplizieren Objekte innerhalb des Editors — ins System-Clipboard kopiert das fertige Bild der „Kopieren“-Knopf in Bibliothek bzw. Editor-Seitenleiste.',
-        '„Speichern“ überschreibt die Datei, „Als Kopie speichern“ legt eine neue Datei an (Typ „Bearbeitet“) und lässt das Original unangetastet.',
+        '„Speichern“ überschreibt die Datei, „Als Kopie speichern“ legt eine neue Datei an (Typ „Bearbeitet“) und lässt das Original unangetastet. Bearbeitungen werden immer als PNG gespeichert — eine JPG-Aufnahme wird beim Überschreiben zur PNG-Datei gleichen Namens (ist der Name schon vergeben, mit -2, -3 …).',
+        'Ein noch offenes Textfeld wird beim Speichern oder Werkzeugwechsel automatisch übernommen. Zurück zur Bibliothek (Knopf oder Esc) fragt nach, wenn ungespeicherte Änderungen verloren gingen — ebenso, wenn währenddessen eine neue Aufnahme den Editor öffnen will.',
       ],
     },
     {
@@ -149,7 +154,7 @@ const de: Content = {
         'Die Galerie zeigt alle Aufnahmen als Karten, neueste zuerst.',
         '• Suche — findet Namen, Dateinamen und Tags',
         '• Filter — Alles, Favoriten, Ausschnitte, Fenster, Bildschirme, Bearbeitet („Bearbeitet“ sind die mit „Als Kopie speichern“ angelegten Kopien)',
-        '• Karten-Aktionen bei Maus darüber: Kopieren, Favorit, Im Finder zeigen, Löschen',
+        '• Karten-Aktionen bei Maus darüber: Kopieren, Favorit, Im Finder zeigen (Windows: Im Explorer zeigen), Löschen',
         'Im Editor rechts bearbeitest du Name und Tags (Komma-getrennt) und siehst Auflösung, Dateigröße und Datum.',
         'Favoriten (Stern) heben Wichtiges hervor und haben einen eigenen Filter.',
       ],
@@ -160,8 +165,10 @@ const de: Content = {
       body: [
         'Standard-Ablage ist ~/Pictures/screencap/ — änderbar in den Einstellungen („Ablage-Ordner“).',
         'Die Aufnahmen sind normale PNG-/JPG-Dateien; der Bibliotheks-Index (index.json) und die Thumbnails (.thumbs/) liegen daneben.',
-        'Der Ordner wird mit der Wirklichkeit abgeglichen: Bilddateien, die du selbst hineinkopierst, tauchen als „Import“ in der Bibliothek auf; von Hand gelöschte Dateien verschwinden aus dem Index.',
-        'Import-Knopf in der Kopfzeile: bestehende Bilder (PNG, JPG, WebP) auswählen — sie werden in den Ablage-Ordner kopiert und aufgenommen.',
+        'Der Ordner wird mit der Wirklichkeit abgeglichen: PNG-/JPG-Dateien, die du selbst hineinkopierst, tauchen als „Import“ in der Bibliothek auf; von Hand gelöschte Dateien verschwinden aus dem Index. Versteckte Dateien (Name beginnt mit „.“) werden ignoriert.',
+        'Import-Knopf in der Kopfzeile: bestehende Bilder (PNG, JPG) auswählen — sie werden in den Ablage-Ordner kopiert und aufgenommen. Dateien, die keine gültigen Bilder sind, werden übersprungen.',
+        'Ist index.json beschädigt, legt screencap sie als index.corrupt-<Datum>.json beiseite und baut die Bibliothek aus den Bilddateien neu auf (Namen/Tags/Favoriten stecken in der beiseitegelegten Datei).',
+        'Löschen entfernt die Datei endgültig (nicht in den Papierkorb). Hält ein anderes Programm die Datei unter Windows geöffnet, meldet screencap das und lässt den Eintrag stehen.',
       ],
     },
     {
@@ -185,9 +192,10 @@ const de: Content = {
         '• Standard-Verzögerung — gilt für Kürzel- und Tray-Aufnahmen',
         '• Aufnahme zusätzlich in die Zwischenablage — direkt einfügbar nach jedem Schuss',
         '• Editor nach der Aufnahme öffnen — an/aus',
-        '• Fensterschatten mit aufnehmen — der macOS-Schatten bei Fenster-Aufnahmen',
+        '• Fensterschatten mit aufnehmen — der macOS-Schatten bei Fenster-Aufnahmen (nur macOS, unter Windows ausgeblendet)',
         '• Beim Anmelden starten — screencap automatisch mit dem System starten',
-        '• Kürzel — alle drei Aufnahme-Kürzel frei belegen',
+        '• Kürzel — alle drei Aufnahme-Kürzel frei belegen; ungültige oder doppelte Kürzel und solche, die schon eine andere App belegt, werden beim Speichern mit einer Meldung abgelehnt (die alten bleiben aktiv)',
+        'Beim allerersten Start übernimmt screencap die Systemsprache. Ein Ablage-Ordner, der sich nicht anlegen lässt, wird beim Speichern abgelehnt.',
       ],
     },
     {
@@ -211,9 +219,10 @@ const de: Content = {
       id: 'tray',
       title: 'Tray & Fensterverhalten',
       body: [
-        'Das Schließen des Fensters (rotes X) versteckt es nur — die globalen Kürzel funktionieren weiter.',
+        'Das Schließen des Fensters (macOS: roter Knopf, Windows: X) versteckt es nur — die globalen Kürzel funktionieren weiter.',
         'Tray-Menü: Ausschnitt/Fenster/Bildschirm aufnehmen, screencap öffnen, screencap beenden.',
-        'Auf dem Mac holt auch ein Klick auf das Dock-Symbol das Fenster zurück.',
+        'Auf dem Mac holt auch ein Klick auf das Dock-Symbol das Fenster zurück. Unter Windows sitzt das screencap-Symbol im Infobereich der Taskleiste (ggf. unter dem ^-Pfeil).',
+        'Das Tray-Menü wechselt die Sprache sofort mit der Einstellung.',
       ],
     },
   ],
@@ -250,6 +259,7 @@ const en: Content = {
         '• Screen (Cmd+Shift+9) — the whole monitor',
         'The dropdown next to the buttons sets a delay (3/5/10 s) — handy for menus and tooltips.',
         'Note: on the very first capture, macOS asks for screen-recording permission — allow once, done.',
+        'On Windows the shortcuts are Ctrl+Shift+7/8/9; a region is dragged out on a dimmed selection overlay.',
       ],
     },
     {
@@ -260,7 +270,7 @@ const en: Content = {
         '• Select tool: every object stays fully editable until you save — move, scale/stretch/squash via corner and edge handles, bend lines/arrows, duplicate (⌘D, ⌥-drag), change color/width afterwards',
         '• Pixelate: drag an area — baked into the image on save, no removable layer',
         '• Crop: select an area, then “Apply crop”',
-        'Undo/redo anytime; nothing is written until you hit “Save” or “Save as copy”.',
+        'Undo/redo anytime (⌘Z / ⌘⇧Z, on Windows Ctrl+Z / Ctrl+Shift+Z); nothing is written until you hit “Save” or “Save as copy”. Leaving the editor with unsaved changes asks first.',
       ],
     },
     {
@@ -269,7 +279,7 @@ const en: Content = {
         'Every capture becomes a card in the gallery — thumbnail, name, size and date.',
         '• Search matches names, file names and tags',
         '• Filter chips: Favorites, Regions, Windows, Screens, Edited',
-        '• Card actions on hover: copy, favorite, reveal in Finder, delete',
+        '• Card actions on hover: copy, favorite, reveal in Finder (Windows: Explorer), delete',
         'Clicking a card opens the editor with name, tags and details.',
       ],
     },
@@ -295,11 +305,13 @@ const en: Content = {
       body: [
         'Three capture modes — via header buttons, the tray menu or global shortcuts:',
         '• Region (Cmd/Ctrl+Shift+7) — drag an area with the mouse; Esc cancels',
-        '• Window (Cmd/Ctrl+Shift+8) — click the window you want; with window shadow (optional)',
+        '• Window (Cmd/Ctrl+Shift+8) — macOS: click the window you want (Esc cancels), with window shadow (optional)',
         '• Screen (Cmd/Ctrl+Shift+9) — the whole monitor, instantly',
         'Delay: the dropdown next to the buttons waits 3, 5 or 10 seconds before capturing — time to open menus. The default delay for shortcuts is set in Settings.',
         'The screencap window hides itself during capture so it doesn’t end up in the shot.',
         'macOS asks for screen-recording permission on the first capture (System Settings → Privacy & Security → Screen Recording) — allowing once is enough.',
+        'Windows: Region — a dimmed overlay appears on the monitor under the mouse pointer; drag an area, Esc or right-click cancels, the size in pixels is shown below the selection. Window — captures the foreground window (no shadow); a delay gives you time to click the window you want. Screen — the monitor under the mouse pointer.',
+        'Linux: capturing is not implemented yet — library and editor work, the capture buttons report an error.',
       ],
     },
     {
@@ -315,9 +327,11 @@ const en: Content = {
         '• Text — click, type, Enter confirms (Shift+Enter for line breaks, Esc cancels)',
         '• Pixelate — drag an area; permanently baked into the image on save',
         '• Crop — select an area, then “Apply crop”',
-        'Plus: 6 colors, 3 stroke widths (2/4/8 px), and undo/redo via the two arrow buttons in the bar.',
+        'Plus: 6 colors, 3 stroke widths (2/4/8 px), and undo/redo via the two arrow buttons in the bar or ⌘Z / ⌘⇧Z (Windows: Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y).',
+        'On Windows, Ctrl replaces ⌘ and Alt replaces ⌥.',
         'Note: ⌘C/⌘V and ⌥-drag duplicate objects inside the editor — the finished image goes to the system clipboard via the “Copy” button in the library or the editor side panel.',
-        '“Save” overwrites the file, “Save as copy” creates a new file (kind “Edited”) and leaves the original untouched.',
+        '“Save” overwrites the file, “Save as copy” creates a new file (kind “Edited”) and leaves the original untouched. Edits are always saved as PNG — overwriting a JPG capture turns it into a PNG of the same name (with -2, -3 … if that name is taken).',
+        'A text box that is still open is committed automatically on save or when switching tools. Going back to the library (button or Esc) asks first if unsaved changes would be lost — likewise when a new capture wants to open the editor meanwhile.',
       ],
     },
     {
@@ -336,7 +350,7 @@ const en: Content = {
         'The gallery shows all captures as cards, newest first.',
         '• Search — matches names, file names and tags',
         '• Filters — Everything, Favorites, Regions, Windows, Screens, Edited (“Edited” being the copies created with “Save as copy”)',
-        '• Card actions on hover: copy, favorite, reveal in Finder, delete',
+        '• Card actions on hover: copy, favorite, reveal in Finder (Windows: show in Explorer), delete',
         'In the editor’s side panel you edit name and tags (comma-separated) and see resolution, file size and date.',
         'Favorites (star) highlight what matters and have their own filter.',
       ],
@@ -347,8 +361,10 @@ const en: Content = {
       body: [
         'The default location is ~/Pictures/screencap/ — changeable in Settings (“Library folder”).',
         'Captures are plain PNG/JPG files; the library index (index.json) and thumbnails (.thumbs/) live next to them.',
-        'The folder is reconciled with reality: image files you copy in yourself appear as “Import” in the library; files deleted by hand disappear from the index.',
-        'Import button in the header: pick existing images (PNG, JPG, WebP) — they are copied into the library folder and adopted.',
+        'The folder is reconciled with reality: PNG/JPG files you copy in yourself appear as “Import” in the library; files deleted by hand disappear from the index. Hidden files (name starting with “.”) are ignored.',
+        'Import button in the header: pick existing images (PNG, JPG) — they are copied into the library folder and adopted. Files that are not valid images are skipped.',
+        'If index.json is damaged, screencap moves it aside as index.corrupt-<date>.json and rebuilds the library from the image files (names/tags/favorites remain in the moved file).',
+        'Deleting removes the file for good (not to the trash). If another program on Windows holds the file open, screencap says so and keeps the entry.',
       ],
     },
     {
@@ -372,9 +388,10 @@ const en: Content = {
         '• Default delay — applies to shortcut and tray captures',
         '• Also copy captures to the clipboard — paste right after every shot',
         '• Open editor after capture — on/off',
-        '• Include window shadow — the macOS shadow on window captures',
+        '• Include window shadow — the macOS shadow on window captures (macOS only, hidden on Windows)',
         '• Start at login — launch screencap with the system',
-        '• Shortcuts — all three capture shortcuts, freely configurable',
+        '• Shortcuts — all three capture shortcuts, freely configurable; invalid or duplicate shortcuts and ones already taken by another app are rejected on save with a message (the old ones stay active)',
+        'On the very first launch screencap adopts the system language. A library folder that cannot be created is rejected on save.',
       ],
     },
     {
@@ -398,9 +415,10 @@ const en: Content = {
       id: 'tray',
       title: 'Tray & window behavior',
       body: [
-        'Closing the window (red X) only hides it — the global shortcuts keep working.',
+        'Closing the window (macOS: red button, Windows: X) only hides it — the global shortcuts keep working.',
         'Tray menu: capture region/window/screen, open screencap, quit screencap.',
-        'On the Mac, clicking the dock icon brings the window back.',
+        'On the Mac, clicking the dock icon brings the window back. On Windows the screencap icon sits in the taskbar notification area (possibly behind the ^ arrow).',
+        'The tray menu switches language right along with the setting.',
       ],
     },
   ],
@@ -416,15 +434,23 @@ export function Help({ lang }: { lang: Lang }) {
     setHelpLang(lang === 'de' ? 'de' : 'en');
   }, [lang]);
   const c = helpLang === 'de' ? de : en;
-  const [mode, setMode] = useState<'closed' | 'tutorial' | 'manual'>(() =>
-    localStorage.getItem(SEEN_KEY) ? 'closed' : 'tutorial'
-  );
+  const [mode, setMode] = useState<'closed' | 'tutorial' | 'manual'>(() => {
+    try {
+      return localStorage.getItem(SEEN_KEY) ? 'closed' : 'tutorial';
+    } catch {
+      return 'tutorial';
+    }
+  });
   const [step, setStep] = useState(0);
   const [sel, setSel] = useState(c.sections[0].id);
   const [q, setQ] = useState('');
 
   const close = () => {
-    localStorage.setItem(SEEN_KEY, '1');
+    try {
+      localStorage.setItem(SEEN_KEY, '1');
+    } catch {
+      /* Storage nicht verfügbar — Tutorial erscheint beim nächsten Start erneut */
+    }
     setMode('closed');
     setStep(0);
   };
