@@ -5,11 +5,12 @@ mod capture;
 mod commands;
 mod settings;
 mod state;
+#[cfg(test)]
+mod concurrency_tests;
 
 use screencap_core::ShotKind;
 use settings::Settings;
 use state::AppState;
-use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager};
@@ -116,17 +117,8 @@ fn main() {
             // app at startup — the folder is re-created on first use
             let _ = std::fs::create_dir_all(&lib_dir);
             let lib = screencap_core::load_library_or_recover(&lib_dir.join("index.json"));
-            app.manage(AppState {
-                lib: Mutex::new(lib),
-                settings: Mutex::new(s.clone()),
-                region_tx: Mutex::new(None),
-                shortcut_error: Mutex::new(None),
-                first_run: !existed,
-                capturing: std::sync::atomic::AtomicBool::new(false),
-                updating: std::sync::atomic::AtomicBool::new(false),
-                io: Mutex::new(()),
-            });
-            if let Err(e) = commands::sync_library_internal(&handle) {
+            app.manage(AppState::new(s.clone(), lib, !existed));
+            if let Err(e) = commands::sync_library_internal(&app.state::<AppState>()) {
                 eprintln!("screencap: {e}");
             }
             build_tray(app, &s)?;

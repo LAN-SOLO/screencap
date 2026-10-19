@@ -29,6 +29,19 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub fn new(settings: Settings, lib: Library, first_run: bool) -> Self {
+        AppState {
+            lib: Mutex::new(lib),
+            settings: Mutex::new(settings),
+            region_tx: Mutex::new(None),
+            shortcut_error: Mutex::new(None),
+            first_run,
+            capturing: AtomicBool::new(false),
+            updating: AtomicBool::new(false),
+            io: Mutex::new(()),
+        }
+    }
+
     pub fn lib_dir(&self) -> PathBuf {
         let dir = self.settings.lock().unwrap().resolved_library_dir();
         let _ = std::fs::create_dir_all(&dir);

@@ -22,9 +22,9 @@ import {
 
 const thumbCache = new Map<string, string>();
 
-// Cache-Schlüssel enthält Datei, Maße und Größe: nach „Speichern“ (Überschreiben)
-// ändert sich mindestens eins davon, das alte Thumbnail fliegt damit raus.
-const thumbKey = (s: Shot) => `${s.id}|${s.file}|${s.width}x${s.height}|${s.sizeBytes}`;
+// Cache-Schlüssel enthält `rev` (zählt bei jedem „Speichern“ hoch), Datei, Maße
+// und Größe: auch ein Überschreiben mit gleicher Größe liefert ein neues Thumbnail.
+const thumbKey = (s: Shot) => `${s.id}|${s.rev}|${s.file}|${s.width}x${s.height}|${s.sizeBytes}`;
 
 function Thumb({ shot }: { shot: Shot }) {
   const key = thumbKey(shot);
@@ -146,8 +146,20 @@ export default function App() {
       // Fehler bei Kürzel-/Tray-Aufnahmen (kein invoke-Aufrufer, der sie anzeigt)
       listen<string>('capture-error', (e) => showError(e.payload)),
     ];
+    // Ablage-Ordner mit der Platte abgleichen, sobald das Fenster wieder nach
+    // vorn kommt — im Finder/Explorer hineinkopierte oder gelöschte Dateien
+    // erscheinen bzw. verschwinden dann ohne Neustart (höchstens alle 2 s)
+    let lastSync = 0;
+    const onFocus = () => {
+      const now = Date.now();
+      if (now - lastSync < 2000) return;
+      lastSync = now;
+      api.syncLibrary().catch(showError);
+    };
+    window.addEventListener('focus', onFocus);
     return () => {
       subs.forEach((p) => p.then((un) => un()));
+      window.removeEventListener('focus', onFocus);
     };
   }, [refresh]);
 

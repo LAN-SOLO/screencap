@@ -17,7 +17,11 @@ Screenshot-Tool mit Ablage: aufnehmen, markieren, wiederfinden.
   wiederholen kurz bei gesperrten Dateien (Virenscanner, OneDrive), schwere
   Arbeit (Bilder laden/speichern, Import, Ordnerwechsel) läuft nicht im
   UI-Thread; Schreibzugriffe auf die Bibliothek laufen nacheinander, damit ein
-  Ordnerwechsel nie mit Import/Speichern/Aufnahme kollidiert.
+  Ordnerwechsel nie mit Import/Speichern/Aufnahme kollidiert (mit echten
+  Threads getestet). Eine JPG, die ein anderes Programm geöffnet hält, wird
+  beim Überschreiben nicht halb ersetzt, sondern gemeldet.
+- Ablage-Ordner wird beim Start, beim Ordnerwechsel und bei jedem Zurückkehren
+  ins Fenster mit der Platte abgeglichen (von Hand kopierte/gelöschte Dateien).
 
 ## Entwicklung
 
@@ -27,7 +31,7 @@ pnpm tauri dev              # App im Dev-Modus
 cargo test --workspace      # Core- und App-Tests (vorher einmal pnpm build)
 ```
 
-Version 1.0.0 — Audit-Bericht (inkl. Runde 2 und Verifikation), Sicherheitsbefunde und manuelle
+Version 1.0.0 — Audit-Bericht (Runden 1–3 und Verifikationen), Sicherheitsbefunde und manuelle
 Test-Checkliste (macOS/Windows): `AUDIT-1.0.md`.
 
 Release-Build (macOS, mit Updater-Artefakten):

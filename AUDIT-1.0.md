@@ -332,3 +332,111 @@ Runtime) lief hier nicht.
 - [ ] Beide: großen Import (100+ Bilder) starten und sofort den Ablage-Ordner wechseln → Wechsel wartet, danach stimmen beide Ordner (Index-Einträge nur für vorhandene Dateien)
 - [ ] Beide: Editor mit Änderungen speichern und währenddessen per Kürzel aufnehmen (Editor-nach-Aufnahme an) → bleibt bei der neuen Aufnahme
 - [ ] Windows: `index.json` in OneDrive-Ordner, während des Syncs Tags setzen → Bibliothek bleibt bedienbar
+
+## 10. Runde 3 (2026-10-20)
+
+Basis `712f76f`. Schwerpunkte: jede Aussage aus Hilfe (DE/EN), README und
+In-App-Texten gegen den Code geprüft; End-to-End-Abläufe inkl. Fehlerfällen;
+die in Runde 2 nur typgeprüfte Schreib-Sperre mit echten Threads getestet;
+die beiden offenen Restpunkte (gesperrte JPG, Thumbnail-Cache) behoben.
+
+**Falsche oder ungenaue Aussagen**
+
+| Aussage | Befund | Lösung |
+|---|---|---|
+| Hilfe/Tutorial: „Dateien, die du selbst hineinlegst, übernimmt screencap **automatisch**; gelöschte verschwinden“ | Abgleich lief nur beim Start und beim Ordnerwechsel — eine im Finder/Explorer kopierte Datei erschien erst nach einem Neustart (`sync_library` wurde vom Frontend nie aufgerufen) | Code: das Hauptfenster gleicht jetzt bei jedem Fokus ab (höchstens alle 2 s); `index.json` wird nur bei einer Änderung geschrieben (kein Plattenzugriff, keine wiederholte Fehlermeldung bei schreibgeschütztem Ordner); während einer Aufnahme wird nicht abgeglichen (die fertige Datei läge sonst kurz vor dem Einsortieren als „Import“ doppelt in der Bibliothek). Hilfe DE/EN nennt jetzt die Zeitpunkte. |
+| Hilfe: „Bildschirm — der komplette Monitor“ | macOS: `screencapture` legt bei einer Zieldatei nur den Hauptbildschirm ab („1 file per screen“), Windows: Monitor unter dem Mauszeiger | Code: `-m` macht die Wahl unter macOS ausdrücklich; Hilfe DE/EN nennt beide Fälle |
+| Hilfe: „Verzögerung wartet … vor der Aufnahme“ | Windows-Ausschnitt: erst Bereich ziehen, dann Verzögerung | Hilfe DE/EN ergänzt |
+| Hilfe: „Standard-Ablage ~/Pictures/screencap“ | Windows: Bilder-Ordner des Benutzers (`dirs::picture_dir`) | Hilfe DE/EN ergänzt |
+| Hilfe: JPG wird beim Überschreiben zur PNG | stimmte, aber bei gesperrter JPG blieb sie liegen (siehe unten) | Verhalten geändert, Hilfe DE/EN beschreibt es |
+
+Geprüft und zutreffend (Code gelesen, teils Test/Harness): 6 Farben, Stärken
+2/4/8 px, Pfeiltasten 1/10 px, ⌘D/⌘C/⌘V/⌥-Ziehen, Undo/Redo inkl. Strg+Y, Esc-Kaskade
+im Editor (Zuschnitt → Auswahl → Bibliothek), Verzögerungen 0/3/5/10 + krummer
+Standardwert, Pixelgröße im Overlay, Alt+F4/Rechtsklick/Esc, eine Aufnahme
+gleichzeitig, Import nur PNG/JPG mit Inhaltsprüfung und Namensbereinigung,
+Wiederholen bei Sperren (1,44 s), `index.corrupt-<Datum>.json`, BOM, Update-Prüfung
+beim Start ohne Auto-Installation, Changelog im Einstellungen-Dialog, Kürzel-Rollback,
+Tray-Sprache, Esc schließt Einstellungen ohne Speichern. DE- und EN-Hilfe haben
+dieselbe Gliederung (16 Abschnitte/Schritte, gleiche Absatzzahl je Abschnitt).
+
+**Restpunkte aus Runde 1/2 — behoben**
+
+- *JPG→PNG-Überschreiben bei dauerhaft gesperrter JPG (Windows):* bisher blieb
+  die JPG neben der neuen PNG liegen und wurde beim nächsten Abgleich als zweite,
+  unbearbeitete „Import“-Aufnahme übernommen. Jetzt (`replace_with_png`): lässt sich
+  die JPG nach den Wiederholungen nicht entfernen, wird die neue PNG wieder
+  gelöscht und das Speichern schlägt mit klarer Meldung fehl; die Änderungen bleiben
+  im Editor („Programm schließen und erneut speichern — oder Als Kopie speichern“).
+- *Thumbnail-Cache-Schlüssel:* jede Aufnahme trägt jetzt `rev` (zählt bei jedem
+  „Speichern“ hoch, fehlt in alten `index.json` → 0); der Cache-Schlüssel der
+  Galerie enthält `rev`, auch ein Überschreiben mit gleicher Größe und gleichen
+  Maßen liefert also ein neues Thumbnail. Zusätzlich erzeugt `get_thumb` ein
+  Thumbnail neu, wenn das Bild neuer ist als das Thumbnail (Datei im
+  Finder/Explorer unter gleichem Namen ersetzt).
+
+**Schreib-Sperre: echte Nebenläufigkeitstests** (`src-tauri/src/concurrency_tests.rs`)
+
+Die Bibliotheks-Operationen sind dafür aus den Tauri-Befehlen herausgelöst
+(`rename_op`, `set_tags_op`, `delete_op`, `save_edit_op`, `import_op`, `sync_op`,
+`file_capture`, `load_current_library` — sie nehmen `&AppState`; die Befehle sind
+nur noch Hüllen mit `spawn_blocking` + Event). Die Tests laufen mit echten
+OS-Threads gegen echte Ordner und lesen danach `index.json` von der Platte (=
+Neustart):
+
+- Import von 40 Bildern + gleichzeitiger Ordnerwechsel (5 Durchläufe): beide
+  Ordner-Indizes listen genau ihre Dateien, Bibliothek im Speicher = Index des
+  aktiven Ordners.
+- 25× „Speichern“ (Überschreiben) parallel zu 25 einsortierten Aufnahmen: keine
+  verlorenen Einträge, letzter Stand gewinnt, `rev` = 25.
+- 50× Umbenennen + Tags parallel zu 10 Abgleichen mit 60 fremden Dateien: Name und
+  Tags bleiben, keine doppelten Einträge.
+- Abgleich während einer Aufnahme übernimmt die neue Datei nicht doppelt.
+- Gesperrte JPG (simuliert über eine fehlschlagende Löschfunktion) bleibt
+  unverändert, keine verwaiste PNG; JPG→PNG über `save_edit_op` mit `rev`.
+- Schreibgeschützter Ordner (Unix): Tags und „Als Kopie“ melden einen Fehler mit
+  Dateiname.
+
+Gegenprobe: mit ausgehebelter Sperre schlagen 2 der 3 Lock-Tests fehl (Import +
+Ordnerwechsel, Umbenennen + Abgleich); der Speichern-+-Aufnahme-Test bleibt dann grün
+(das Zeitfenster ist dort zu klein) — er sichert nur das Ergebnis, nicht die Sperre.
+Die Tests laufen ohne Tauri-Laufzeit; `spawn_blocking` selbst ist nicht beteiligt.
+
+**End-to-End-Abläufe** (Headless-Chromium, echte React-Oberfläche, Mock-IPC wie in
+Runde 2, Dialog-Plugin nachgebildet), je in DE und EN = 24/24:
+
+1. Erststart: Systemsprache übernommen, Tutorial alle 6 Schritte, danach nicht wieder
+2. Aufnahme → Editor öffnet → Rechteck → Speichern → `rev` +1 → Galerie holt neues Thumbnail
+3. Aufnahme abgebrochen (Esc): keine Karte, keine Meldung
+4. Platte voll beim Speichern: rote Meldung, Änderungen bleiben, Zurück fragt nach
+5. Gesperrte JPG beim Überschreiben: Meldung, Editor bleibt, „Als Kopie speichern“ klappt
+6. Import-Dialog abgebrochen: kein Import, keine Meldung
+7. Import ohne gültige Bilder: Hinweis „Keine importierbaren Bilder“
+8. Ablage-Ordner schreibgeschützt: Meldung im Dialog, Dialog bleibt offen
+9. Datei im Finder/Explorer hineinkopiert/gelöscht: erscheint/verschwindet beim Fokus, 2-s-Drossel
+10. Neustart mitten in der Bearbeitung: Bibliothek lädt sauber, kein Fehler
+11. Einstellungen per Esc: nichts gespeichert
+
+Die Fehlerfälle „Platte voll“/„schreibgeschützt“/„gesperrt“ sind in der
+Oberfläche über die Fehlermeldungen simuliert, die das Backend liefert; im Backend
+selbst ist „schreibgeschützt“ echt getestet, „Platte voll“ und echte
+Windows-Sperren nicht. Ältere Suiten erneut grün: 20/20, 4/4 Verifikation, 3/3
+Windows-UA.
+
+**Testlauf:** `cargo test --workspace` 18 Core + 32 App grün; `cargo clippy
+--workspace --all-targets` 0 Warnungen auf macOS und für `x86_64-pc-windows-msvc`
+(nur Typcheck); `pnpm build` fehlerfrei; `pnpm audit` ohne Befund; `cargo audit`
+wie in Runde 2 (zip 4.6.1 über den Updater; Unmaintained-/Linux-Hinweise inkl.
+`glib`, nur Linux).
+
+**Nur auf echter Hardware prüfbar (zusätzlich):**
+
+- [ ] Beide: Datei im Finder/Explorer in den Ablage-Ordner kopieren, zurück zu screencap klicken → Karte erscheint ohne Neustart; Datei löschen → verschwindet
+- [ ] Beide: Aufnahme per Kürzel bei geöffnetem Fenster → genau eine Karte (kein zusätzlicher „Import“)
+- [ ] macOS mit zwei Monitoren: „Bildschirm“ nimmt den Hauptbildschirm auf
+- [ ] Windows: JPG-Aufnahme in der Fotoanzeige geöffnet lassen, im Editor „Speichern“ → Meldung „gesperrt“, keine zweite Datei im Ordner; „Als Kopie speichern“ klappt
+- [ ] Beide: Aufnahme zweimal mit gleicher Größe speichern → Galerie zeigt das neue Bild
+
+**Weiterhin offen:** zip-Advisories (upstream). Ein Bild mit Änderungsdatum in der
+Zukunft bekommt bei jeder ersten Anzeige pro Sitzung ein neues Thumbnail (nur
+Rechenzeit).

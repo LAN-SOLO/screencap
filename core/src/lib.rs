@@ -34,6 +34,11 @@ pub struct Shot {
     pub size_bytes: u64,
     pub tags: Vec<String>,
     pub favorite: bool,
+    /// Bumped whenever the image content is replaced (editor "Save"), so a
+    /// cached thumbnail is never reused for new pixels — even if size and
+    /// dimensions happen to stay the same. Missing in older index files.
+    #[serde(default)]
+    pub rev: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +98,7 @@ impl Library {
             size_bytes,
             tags: Vec::new(),
             favorite: false,
+            rev: 0,
         };
         let id = shot.id;
         self.shots.insert(0, shot);
@@ -549,5 +555,20 @@ mod tests {
         assert_eq!(lib.remove(id), Some("a.png".to_string()));
         assert!(lib.shots.is_empty());
         assert_eq!(lib.remove(id), None);
+    }
+
+    #[test]
+    fn index_without_rev_loads_with_rev_zero() {
+        // index.json written by 0.x / 1.0 test builds has no "rev" field
+        let dir = std::env::temp_dir().join(format!("screencap-rev-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut lib = Library::default();
+        lib.add("a.png", ShotKind::Region, 1, 1, 1);
+        let mut v = serde_json::to_value(&lib).unwrap();
+        v["shots"][0].as_object_mut().unwrap().remove("rev");
+        std::fs::write(dir.join("index.json"), serde_json::to_vec(&v).unwrap()).unwrap();
+        let loaded = load_library(&dir.join("index.json")).unwrap();
+        assert_eq!(loaded.shots[0].rev, 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

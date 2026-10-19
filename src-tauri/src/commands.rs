@@ -7,7 +7,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShotDto {
     pub id: Uuid,
@@ -20,6 +20,7 @@ pub struct ShotDto {
     pub size_bytes: u64,
     pub tags: Vec<String>,
     pub favorite: bool,
+    pub rev: u32,
 }
 
 fn to_dto(s: &Shot) -> ShotDto {
@@ -34,6 +35,7 @@ fn to_dto(s: &Shot) -> ShotDto {
         size_bytes: s.size_bytes,
         tags: s.tags.clone(),
         favorite: s.favorite,
+        rev: s.rev,
     }
 }
 
@@ -107,20 +109,32 @@ pub fn list_shots(st: State<'_, AppState>, query: String, filter: Filter) -> Vec
     lib.search(&query, filter).into_iter().map(to_dto).collect()
 }
 
+/// A thumbnail is (re)made when it is missing or older than its image —
+/// e.g. the file was replaced in Finder/Explorer under the same name.
+pub fn thumb_is_stale(src: &std::path::Path, thumb: &std::path::Path) -> bool {
+    let modified = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    match (modified(src), modified(thumb)) {
+        (_, None) => true,
+        (Some(s), Some(t)) => s > t,
+        (None, Some(_)) => false,
+    }
+}
+
 #[tauri::command]
 pub async fn get_thumb(app: AppHandle, id: Uuid) -> Result<String, String> {
     blocking(app, move |app| {
         let st = app.state::<AppState>();
         let thumb_path = st.thumbs_dir().join(format!("{id}.png"));
-        if !thumb_path.exists() {
+        let file = shot_file(&st, id)?;
+        let src = st.lib_dir().join(&file);
+        if thumb_is_stale(&src, &thumb_path) {
             // one thumbnail at a time: a freshly adopted folder with hundreds
             // of big images would otherwise decode them all in parallel
             // (blocking pool) and spike the memory
             static THUMB_GEN: std::sync::Mutex<()> = std::sync::Mutex::new(());
             let _one = THUMB_GEN.lock().unwrap_or_else(|e| e.into_inner());
-            if !thumb_path.exists() {
-                let file = shot_file(&st, id)?;
-                make_thumb(&st.lib_dir().join(&file), &thumb_path);
+            if thumb_is_stale(&src, &thumb_path) {
+                make_thumb(&src, &thumb_path);
             }
         }
         let data = std::fs::read(&thumb_path).map_err(|e| e.to_string())?;
@@ -140,70 +154,87 @@ pub async fn get_image(app: AppHandle, id: Uuid) -> Result<String, String> {
     .await
 }
 
-fn changed(app: &AppHandle) -> Result<(), String> {
-    app.state::<AppState>().persist()?;
+/// Tells the windows to reload the gallery.
+fn notify(app: &AppHandle) {
     let _ = app.emit("library-changed", ());
-    Ok(())
+}
+
+// The library operations below take `&AppState` (not the AppHandle) so the
+// tests can run them from several threads against a real folder and check
+// that the write lock (`AppState::io`) keeps index.json consistent.
+
+pub fn rename_op(st: &AppState, id: Uuid, name: &str) -> Result<(), String> {
+    let _io = st.io_lock();
+    if !st.lib.lock().unwrap().rename(id, name) {
+        return Err(tr("Name darf nicht leer sein", "Name must not be empty"));
+    }
+    st.persist()
+}
+
+pub fn set_tags_op(st: &AppState, id: Uuid, tags: &[String]) -> Result<(), String> {
+    let _io = st.io_lock();
+    st.lib.lock().unwrap().set_tags(id, tags);
+    st.persist()
+}
+
+pub fn set_favorite_op(st: &AppState, id: Uuid, favorite: bool) -> Result<(), String> {
+    let _io = st.io_lock();
+    st.lib.lock().unwrap().set_favorite(id, favorite);
+    st.persist()
+}
+
+pub fn delete_op(st: &AppState, id: Uuid) -> Result<(), String> {
+    let _io = st.io_lock();
+    let file = shot_file(st, id)?;
+    let path = st.lib_dir().join(&file);
+    // Windows: a file another program holds open can't be deleted (retried
+    // briefly for scanners/indexers) — keep the index entry then, otherwise
+    // the next sync would re-adopt it as import
+    if let Err(e) = screencap_core::retry_io(|| std::fs::remove_file(&path)) {
+        if path.exists() {
+            return Err(tr(
+                format!("Datei konnte nicht gelöscht werden: {e}"),
+                format!("File could not be deleted: {e}"),
+            ));
+        }
+    }
+    st.lib.lock().unwrap().remove(id);
+    let _ = std::fs::remove_file(st.thumbs_dir().join(format!("{id}.png")));
+    st.persist()
+}
+
+/// Runs a library operation on the blocking pool and announces the change
+/// (also after a failed index write — the in-memory library did change).
+async fn lib_op(
+    app: AppHandle,
+    f: impl FnOnce(&AppState) -> Result<(), String> + Send + 'static,
+) -> Result<(), String> {
+    blocking(app, move |app| {
+        let r = f(&app.state::<AppState>());
+        notify(app);
+        r
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn rename_shot(app: AppHandle, id: Uuid, name: String) -> Result<(), String> {
-    blocking(app, move |app| {
-        let st = app.state::<AppState>();
-        let _io = st.io_lock();
-        if !st.lib.lock().unwrap().rename(id, &name) {
-            return Err(tr("Name darf nicht leer sein", "Name must not be empty"));
-        }
-        changed(app)
-    })
-    .await
+    lib_op(app, move |st| rename_op(st, id, &name)).await
 }
 
 #[tauri::command]
 pub async fn set_tags(app: AppHandle, id: Uuid, tags: Vec<String>) -> Result<(), String> {
-    blocking(app, move |app| {
-        let st = app.state::<AppState>();
-        let _io = st.io_lock();
-        st.lib.lock().unwrap().set_tags(id, &tags);
-        changed(app)
-    })
-    .await
+    lib_op(app, move |st| set_tags_op(st, id, &tags)).await
 }
 
 #[tauri::command]
 pub async fn set_favorite(app: AppHandle, id: Uuid, favorite: bool) -> Result<(), String> {
-    blocking(app, move |app| {
-        let st = app.state::<AppState>();
-        let _io = st.io_lock();
-        st.lib.lock().unwrap().set_favorite(id, favorite);
-        changed(app)
-    })
-    .await
+    lib_op(app, move |st| set_favorite_op(st, id, favorite)).await
 }
 
 #[tauri::command]
 pub async fn delete_shot(app: AppHandle, id: Uuid) -> Result<(), String> {
-    blocking(app, move |app| {
-        let st = app.state::<AppState>();
-        let _io = st.io_lock();
-        let file = shot_file(&st, id)?;
-        let path = st.lib_dir().join(&file);
-        // Windows: a file another program holds open can't be deleted (retried
-        // briefly for scanners/indexers) — keep the index entry then, otherwise
-        // the next sync would re-adopt it as import
-        if let Err(e) = screencap_core::retry_io(|| std::fs::remove_file(&path)) {
-            if path.exists() {
-                return Err(tr(
-                    format!("Datei konnte nicht gelöscht werden: {e}"),
-                    format!("File could not be deleted: {e}"),
-                ));
-            }
-        }
-        st.lib.lock().unwrap().remove(id);
-        let _ = std::fs::remove_file(st.thumbs_dir().join(format!("{id}.png")));
-        changed(app)
-    })
-    .await
+    lib_op(app, move |st| delete_op(st, id)).await
 }
 
 #[tauri::command]
@@ -271,11 +302,53 @@ pub fn write_atomic(dir: &std::path::Path, file: &str, data: &[u8]) -> Result<()
 /// Saves an edited PNG. `mode` is "overwrite" or "copy".
 #[tauri::command]
 pub async fn save_edit(app: AppHandle, id: Uuid, png_base64: String, mode: String) -> Result<ShotDto, String> {
-    blocking(app, move |app| save_edit_blocking(app, id, png_base64, mode)).await
+    blocking(app, move |app| {
+        let r = save_edit_op(&app.state::<AppState>(), id, &png_base64, &mode);
+        if r.is_ok() {
+            notify(app);
+        }
+        r
+    })
+    .await
 }
 
-fn save_edit_blocking(app: &AppHandle, id: Uuid, png_base64: String, mode: String) -> Result<ShotDto, String> {
-    let st = app.state::<AppState>();
+/// A JPG saved over becomes a PNG next to it: write the PNG, then remove the
+/// JPG. If the JPG can't be removed (Windows: open in another program for
+/// longer than the lock retries), the PNG is taken back and the save fails
+/// — otherwise the old JPG would stay behind and the next sync would adopt
+/// it as a second, unedited "import". The editor keeps the changes, so the
+/// user can close the other program and save again, or save as a copy.
+pub fn replace_with_png(
+    dir: &std::path::Path,
+    old_file: &str,
+    new_file: &str,
+    data: &[u8],
+    mut remove: impl FnMut(&std::path::Path) -> std::io::Result<()>,
+) -> Result<(), String> {
+    write_atomic(dir, new_file, data)?;
+    if new_file == old_file {
+        return Ok(());
+    }
+    let old = dir.join(old_file);
+    if let Err(e) = screencap_core::retry_io(|| remove(&old)) {
+        if old.exists() {
+            let _ = std::fs::remove_file(dir.join(new_file));
+            return Err(tr(
+                format!(
+                    "„{old_file}“ ist gesperrt (in einem anderen Programm geöffnet?) und wurde nicht ersetzt: {e}. \
+                     Programm schließen und erneut speichern — oder „Als Kopie speichern“."
+                ),
+                format!(
+                    "“{old_file}” is locked (open in another program?) and was not replaced: {e}. \
+                     Close the program and save again — or use “Save as copy”."
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn save_edit_op(st: &AppState, id: Uuid, png_base64: &str, mode: &str) -> Result<ShotDto, String> {
     let _io = st.io_lock();
     if mode != "overwrite" && mode != "copy" {
         return Err(tr("unbekannter Speichermodus", "unknown save mode"));
@@ -302,10 +375,7 @@ fn save_edit_blocking(app: &AppHandle, id: Uuid, png_base64: String, mode: Strin
     let result_id = if mode == "overwrite" {
         // edits are always saved as PNG; swap the file if it wasn't one
         let new_file = overwrite_target(&dir, &stem, &old_file);
-        write_atomic(&dir, &new_file, &data)?;
-        if new_file != old_file {
-            let _ = screencap_core::retry_io(|| std::fs::remove_file(dir.join(&old_file)));
-        }
+        replace_with_png(&dir, &old_file, &new_file, &data, |p| std::fs::remove_file(p))?;
         {
             let mut lib = st.lib.lock().unwrap();
             if let Some(s) = lib.shots.iter_mut().find(|s| s.id == id) {
@@ -313,6 +383,7 @@ fn save_edit_blocking(app: &AppHandle, id: Uuid, png_base64: String, mode: Strin
                 s.width = width;
                 s.height = height;
                 s.size_bytes = data.len() as u64;
+                s.rev = s.rev.wrapping_add(1);
             }
         }
         capture::write_thumb(&img, &st.thumbs_dir().join(format!("{id}.png")));
@@ -329,7 +400,7 @@ fn save_edit_blocking(app: &AppHandle, id: Uuid, png_base64: String, mode: Strin
         capture::write_thumb(&img, &st.thumbs_dir().join(format!("{new_id}.png")));
         new_id
     };
-    changed(app)?;
+    st.persist()?;
     let lib = st.lib.lock().unwrap();
     lib.get(result_id)
         .map(to_dto)
@@ -351,68 +422,101 @@ pub fn import_target(dir: &std::path::Path, src: &std::path::Path) -> Option<Str
 #[tauri::command]
 pub async fn import_files(app: AppHandle, paths: Vec<String>) -> Result<u32, String> {
     blocking(app, move |app| {
-        let st = app.state::<AppState>();
-        let _io = st.io_lock();
-        let dir = st.lib_dir();
-        let mut imported = 0u32;
-        let mut last_err: Option<String> = None;
-        for p in paths {
-            let src = std::path::PathBuf::from(&p);
-            if !src.is_file() {
-                continue;
-            }
-            // only real images — the content decides, not the extension
-            if image::image_dimensions(&src).is_err() {
-                continue;
-            }
-            let Some(target_name) = import_target(&dir, &src) else {
-                continue;
-            };
-            if let Err(e) = std::fs::copy(&src, dir.join(&target_name)) {
-                last_err = Some(e.to_string());
-                continue;
-            }
-            let (w, h) = image::image_dimensions(dir.join(&target_name)).unwrap_or((0, 0));
-            let size = std::fs::metadata(dir.join(&target_name)).map(|m| m.len()).unwrap_or(0);
-            let id = st.lib.lock().unwrap().add(&target_name, ShotKind::Import, w, h, size);
-            make_thumb(&dir.join(&target_name), &st.thumbs_dir().join(format!("{id}.png")));
-            imported += 1;
+        let r = import_op(&app.state::<AppState>(), &paths);
+        if matches!(r, Ok(n) if n > 0) {
+            notify(app);
         }
-        if imported > 0 {
-            changed(app)?;
-        } else if let Some(e) = last_err {
-            return Err(tr(format!("Import fehlgeschlagen: {e}"), format!("Import failed: {e}")));
-        }
-        Ok(imported)
+        r
     })
     .await
+}
+
+pub fn import_op(st: &AppState, paths: &[String]) -> Result<u32, String> {
+    let _io = st.io_lock();
+    let dir = st.lib_dir();
+    let mut imported = 0u32;
+    let mut last_err: Option<String> = None;
+    for p in paths {
+        let src = std::path::PathBuf::from(p);
+        if !src.is_file() {
+            continue;
+        }
+        // only real images — the content decides, not the extension
+        if image::image_dimensions(&src).is_err() {
+            continue;
+        }
+        let Some(target_name) = import_target(&dir, &src) else {
+            continue;
+        };
+        if let Err(e) = std::fs::copy(&src, dir.join(&target_name)) {
+            last_err = Some(e.to_string());
+            continue;
+        }
+        let (w, h) = image::image_dimensions(dir.join(&target_name)).unwrap_or((0, 0));
+        let size = std::fs::metadata(dir.join(&target_name)).map(|m| m.len()).unwrap_or(0);
+        let id = st.lib.lock().unwrap().add(&target_name, ShotKind::Import, w, h, size);
+        make_thumb(&dir.join(&target_name), &st.thumbs_dir().join(format!("{id}.png")));
+        imported += 1;
+    }
+    if imported > 0 {
+        st.persist()?;
+    } else if let Some(e) = last_err {
+        return Err(tr(format!("Import fehlgeschlagen: {e}"), format!("Import failed: {e}")));
+    }
+    Ok(imported)
 }
 
 /// Reconciles index and disk; files found on disk without an index entry are
 /// adopted as imports. Called at startup and on demand. Only reads image
 /// headers — thumbnails are generated lazily by `get_thumb`, so a folder
 /// with hundreds of foreign files doesn't stall startup.
-pub fn sync_library_internal(app: &AppHandle) -> Result<(), String> {
-    let st = app.state::<AppState>();
+/// Caller holds [`AppState::io_lock`] (startup excepted).
+/// index.json is only written when something changed, so syncing on every
+/// window focus neither touches the disk nor repeats an error for a
+/// read-only folder.
+pub fn sync_library_internal(st: &AppState) -> Result<(), String> {
     let on_disk = st.files_on_disk();
-    let unknown = st.lib.lock().unwrap().sync(&on_disk);
+    let (unknown, dropped) = {
+        let mut lib = st.lib.lock().unwrap();
+        let before = lib.shots.len();
+        let unknown = lib.sync(&on_disk);
+        (unknown, before != lib.shots.len())
+    };
+    if unknown.is_empty() && !dropped {
+        return Ok(());
+    }
     let dir = st.lib_dir();
     for file in unknown {
         let (w, h) = image::image_dimensions(dir.join(&file)).unwrap_or((0, 0));
         let size = std::fs::metadata(dir.join(&file)).map(|m| m.len()).unwrap_or(0);
         st.lib.lock().unwrap().add(&file, ShotKind::Import, w, h, size);
     }
-    changed(app)
+    st.persist()
 }
 
 #[tauri::command]
 pub async fn sync_library(app: AppHandle) -> Result<(), String> {
-    blocking(app, |app| {
-        let st = app.state::<AppState>();
-        let _io = st.io_lock();
-        sync_library_internal(app)
-    })
-    .await
+    lib_op(app, sync_op).await
+}
+
+/// On-demand sync (the main window calls it whenever it regains focus).
+pub fn sync_op(st: &AppState) -> Result<(), String> {
+    let _io = st.io_lock();
+    // a finished capture is on disk a moment before it is filed (and the
+    // window regains focus right then) — don't adopt it as an "import"
+    if st.capturing.load(std::sync::atomic::Ordering::SeqCst) {
+        return Ok(());
+    }
+    sync_library_internal(st)
+}
+
+/// Second half of a library-folder switch: settings already point to the
+/// new folder — load (or start) its index and reconcile it with the disk.
+/// Caller holds [`AppState::io_lock`] across both halves.
+pub fn load_current_library(st: &AppState) -> Result<(), String> {
+    let lib = screencap_core::load_library_or_recover(&st.index_path());
+    *st.lib.lock().unwrap() = lib;
+    sync_library_internal(st)
 }
 
 #[tauri::command]
@@ -519,10 +623,9 @@ fn set_settings_blocking(app: &AppHandle, new: Settings) -> Result<(), String> {
         crate::update_tray_language(app, &new);
     }
     if dir_changes {
-        // switch library: load (or start) the index in the new folder
-        let lib = screencap_core::load_library_or_recover(&st.index_path());
-        *st.lib.lock().unwrap() = lib;
-        sync_library_internal(app)?;
+        let r = load_current_library(&st);
+        notify(app);
+        r?;
     }
     Ok(())
 }
@@ -684,6 +787,23 @@ mod tests {
         assert_eq!(std::fs::read(d.join("b.png")).unwrap(), b"two");
         let names: Vec<_> = std::fs::read_dir(&d).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(names.len(), 1);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn thumbnail_older_than_its_image_is_stale() {
+        let d = tmpdir();
+        let (src, thumb) = (d.join("a.png"), d.join("t.png"));
+        std::fs::write(&src, b"x").unwrap();
+        assert!(thumb_is_stale(&src, &thumb), "missing thumbnail");
+        std::fs::write(&thumb, b"t").unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        std::fs::File::options().write(true).open(&src).unwrap().set_modified(old).unwrap();
+        assert!(!thumb_is_stale(&src, &thumb));
+        // image replaced afterwards (same name) → thumbnail must be redone
+        let newer = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+        std::fs::File::options().write(true).open(&src).unwrap().set_modified(newer).unwrap();
+        assert!(thumb_is_stale(&src, &thumb));
         let _ = std::fs::remove_dir_all(&d);
     }
 

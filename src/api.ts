@@ -14,6 +14,8 @@ export interface Shot {
   sizeBytes: number;
   tags: string[];
   favorite: boolean;
+  /** Zählt bei jedem Überschreiben hoch (Thumbnail-Cache). */
+  rev: number;
 }
 
 export interface Settings {

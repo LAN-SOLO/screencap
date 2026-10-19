@@ -86,7 +86,11 @@ fn run_screencapture(
                 cmd.arg("-o");
             }
         }
-        _ => {} // full screen: no extra flags
+        // full screen: the main display (with several monitors screencapture
+        // would want one file per screen; `-m` makes the choice explicit)
+        _ => {
+            cmd.arg("-m");
+        }
     }
     if delay > 0 {
         cmd.arg("-T").arg(delay.to_string());
@@ -299,6 +303,19 @@ impl Drop for CaptureGuard<'_> {
     }
 }
 
+/// Files a finished capture (`dir/file`) into the library under the write
+/// lock: index entry, thumbnail, index.json. The library folder can't change
+/// in between — a folder switch is refused while `capturing` is set.
+pub fn file_capture(st: &AppState, dir: &Path, file: &str, kind: ShotKind) -> (Uuid, Result<(), String>) {
+    let target = dir.join(file);
+    let (width, height) = image::image_dimensions(&target).unwrap_or((0, 0));
+    let size_bytes = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
+    let _io = st.io_lock();
+    let id = st.lib.lock().unwrap().add(file, kind, width, height, size_bytes);
+    make_thumb(&target, &st.thumbs_dir().join(format!("{id}.png")));
+    (id, st.persist())
+}
+
 /// Runs a capture and files the result. Returns None if the user cancelled.
 /// Blocking — call from a worker thread / spawn_blocking.
 pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result<Option<Uuid>, String> {
@@ -357,19 +374,11 @@ pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result
         return Ok(None); // user hit Esc
     }
 
-    let (width, height) = image::image_dimensions(&target).unwrap_or((0, 0));
-    let size_bytes = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
-    let io = st.io_lock();
-    let id = {
-        let mut lib = st.lib.lock().unwrap();
-        lib.add(&file, kind, width, height, size_bytes)
-    };
-    make_thumb(&target, &st.thumbs_dir().join(format!("{id}.png")));
+    let (id, persisted) = file_capture(&st, &dir, &file, kind);
     // the capture itself worked — report follow-up problems, don't fail it
-    if let Err(e) = st.persist() {
+    if let Err(e) = persisted {
         let _ = app.emit("capture-error", e);
     }
-    drop(io);
     let _ = app.emit("library-changed", ());
     if copy_after {
         if let Err(e) = copy_image_to_clipboard(&target) {
