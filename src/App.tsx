@@ -264,7 +264,7 @@ export default function App() {
               setInstalling(true);
               api.installUpdate().catch((e) => {
                 setInstalling(false);
-                showError(`${t.updateInstallError} ${e}`);
+                showError(e); // Backend-Meldung trägt schon „Update fehlgeschlagen: …“
               });
             }}
           >

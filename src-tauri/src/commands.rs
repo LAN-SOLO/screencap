@@ -149,7 +149,9 @@ fn changed(app: &AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn rename_shot(app: AppHandle, id: Uuid, name: String) -> Result<(), String> {
     blocking(app, move |app| {
-        if !app.state::<AppState>().lib.lock().unwrap().rename(id, &name) {
+        let st = app.state::<AppState>();
+        let _io = st.io_lock();
+        if !st.lib.lock().unwrap().rename(id, &name) {
             return Err(tr("Name darf nicht leer sein", "Name must not be empty"));
         }
         changed(app)
@@ -160,7 +162,9 @@ pub async fn rename_shot(app: AppHandle, id: Uuid, name: String) -> Result<(), S
 #[tauri::command]
 pub async fn set_tags(app: AppHandle, id: Uuid, tags: Vec<String>) -> Result<(), String> {
     blocking(app, move |app| {
-        app.state::<AppState>().lib.lock().unwrap().set_tags(id, &tags);
+        let st = app.state::<AppState>();
+        let _io = st.io_lock();
+        st.lib.lock().unwrap().set_tags(id, &tags);
         changed(app)
     })
     .await
@@ -169,7 +173,9 @@ pub async fn set_tags(app: AppHandle, id: Uuid, tags: Vec<String>) -> Result<(),
 #[tauri::command]
 pub async fn set_favorite(app: AppHandle, id: Uuid, favorite: bool) -> Result<(), String> {
     blocking(app, move |app| {
-        app.state::<AppState>().lib.lock().unwrap().set_favorite(id, favorite);
+        let st = app.state::<AppState>();
+        let _io = st.io_lock();
+        st.lib.lock().unwrap().set_favorite(id, favorite);
         changed(app)
     })
     .await
@@ -179,6 +185,7 @@ pub async fn set_favorite(app: AppHandle, id: Uuid, favorite: bool) -> Result<()
 pub async fn delete_shot(app: AppHandle, id: Uuid) -> Result<(), String> {
     blocking(app, move |app| {
         let st = app.state::<AppState>();
+        let _io = st.io_lock();
         let file = shot_file(&st, id)?;
         let path = st.lib_dir().join(&file);
         // Windows: a file another program holds open can't be deleted (retried
@@ -269,6 +276,7 @@ pub async fn save_edit(app: AppHandle, id: Uuid, png_base64: String, mode: Strin
 
 fn save_edit_blocking(app: &AppHandle, id: Uuid, png_base64: String, mode: String) -> Result<ShotDto, String> {
     let st = app.state::<AppState>();
+    let _io = st.io_lock();
     if mode != "overwrite" && mode != "copy" {
         return Err(tr("unbekannter Speichermodus", "unknown save mode"));
     }
@@ -344,6 +352,7 @@ pub fn import_target(dir: &std::path::Path, src: &std::path::Path) -> Option<Str
 pub async fn import_files(app: AppHandle, paths: Vec<String>) -> Result<u32, String> {
     blocking(app, move |app| {
         let st = app.state::<AppState>();
+        let _io = st.io_lock();
         let dir = st.lib_dir();
         let mut imported = 0u32;
         let mut last_err: Option<String> = None;
@@ -398,7 +407,12 @@ pub fn sync_library_internal(app: &AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn sync_library(app: AppHandle) -> Result<(), String> {
-    blocking(app, sync_library_internal).await
+    blocking(app, |app| {
+        let st = app.state::<AppState>();
+        let _io = st.io_lock();
+        sync_library_internal(app)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -420,6 +434,10 @@ pub async fn set_settings(app: AppHandle, new: Settings) -> Result<(), String> {
 
 fn set_settings_blocking(app: &AppHandle, new: Settings) -> Result<(), String> {
     let st = app.state::<AppState>();
+    // whole switch under the library write lock: no rename/import/save/
+    // capture filing can land between "settings point to the new folder"
+    // and "the new folder's index is loaded"
+    let _io = st.io_lock();
     let new = new.normalized();
     let old = st.settings.lock().unwrap().clone();
     new.validate_shortcuts()?;

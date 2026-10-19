@@ -16,7 +16,8 @@ Screenshot-Tool mit Ablage: aufnehmen, markieren, wiederfinden.
 - Windows-fest: Dateinamen beim Import portabel bereinigt, Speichern/Löschen
   wiederholen kurz bei gesperrten Dateien (Virenscanner, OneDrive), schwere
   Arbeit (Bilder laden/speichern, Import, Ordnerwechsel) läuft nicht im
-  UI-Thread.
+  UI-Thread; Schreibzugriffe auf die Bibliothek laufen nacheinander, damit ein
+  Ordnerwechsel nie mit Import/Speichern/Aufnahme kollidiert.
 
 ## Entwicklung
 
@@ -26,7 +27,7 @@ pnpm tauri dev              # App im Dev-Modus
 cargo test --workspace      # Core- und App-Tests (vorher einmal pnpm build)
 ```
 
-Version 1.0.0 — Audit-Bericht (inkl. Runde 2), Sicherheitsbefunde und manuelle
+Version 1.0.0 — Audit-Bericht (inkl. Runde 2 und Verifikation), Sicherheitsbefunde und manuelle
 Test-Checkliste (macOS/Windows): `AUDIT-1.0.md`.
 
 Release-Build (macOS, mit Updater-Artefakten):

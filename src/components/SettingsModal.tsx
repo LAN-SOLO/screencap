@@ -244,7 +244,7 @@ export function SettingsModal({
                   setUpdError(null);
                   api.installUpdate().catch((e) => {
                     setInstalling(false);
-                    setUpdError(`${t.updateInstallError} ${e}`);
+                    setUpdError(String(e)); // schon mit Präfix aus dem Backend
                   });
                 }}
               >

@@ -168,9 +168,6 @@ pub fn expand_library_dir(custom: &str, home: Option<PathBuf>) -> PathBuf {
     PathBuf::from(custom)
 }
 
-impl Settings {
-}
-
 fn default_theme() -> String {
     "dark".into()
 }

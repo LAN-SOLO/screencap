@@ -124,6 +124,7 @@ fn main() {
                 first_run: !existed,
                 capturing: std::sync::atomic::AtomicBool::new(false),
                 updating: std::sync::atomic::AtomicBool::new(false),
+                io: Mutex::new(()),
             });
             if let Err(e) = commands::sync_library_internal(&handle) {
                 eprintln!("screencap: {e}");

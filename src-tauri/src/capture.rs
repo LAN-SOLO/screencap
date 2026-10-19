@@ -303,6 +303,10 @@ impl Drop for CaptureGuard<'_> {
 /// Blocking — call from a worker thread / spawn_blocking.
 pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result<Option<Uuid>, String> {
     let st = app.state::<AppState>();
+    // the flag and the target folder are taken under the library write lock:
+    // a library-folder switch either finishes first (capture goes to the new
+    // folder) or sees the flag and is refused
+    let io = st.io_lock();
     // one capture at a time: a second shortcut press while the region
     // overlay / screencapture is still open would otherwise race for the
     // overlay window and the result channel
@@ -325,6 +329,7 @@ pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result
     let stem = Local::now().format("screencap-%Y%m%d-%H%M%S").to_string();
     let file = unique_file_name(&dir, &stem, &format);
     let target = dir.join(&file);
+    drop(io); // not held while the user drags a region / picks a window
 
     // get our own window out of the shot
     let win = app.get_webview_window("main");
@@ -354,6 +359,7 @@ pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result
 
     let (width, height) = image::image_dimensions(&target).unwrap_or((0, 0));
     let size_bytes = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
+    let io = st.io_lock();
     let id = {
         let mut lib = st.lib.lock().unwrap();
         lib.add(&file, kind, width, height, size_bytes)
@@ -363,6 +369,7 @@ pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result
     if let Err(e) = st.persist() {
         let _ = app.emit("capture-error", e);
     }
+    drop(io);
     let _ = app.emit("library-changed", ());
     if copy_after {
         if let Err(e) = copy_image_to_clipboard(&target) {

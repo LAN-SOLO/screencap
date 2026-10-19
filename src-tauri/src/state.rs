@@ -20,6 +20,12 @@ pub struct AppState {
     pub capturing: AtomicBool,
     /// An update download/install is running (one at a time).
     pub updating: AtomicBool,
+    /// Serializes everything that writes the library (index.json, image
+    /// files) and the library-folder switch. The commands run on the
+    /// blocking pool now, so without it a rename/import/save could write the
+    /// old library into the new folder's index.json mid-switch, or file a
+    /// capture into the folder that is being left. Order: `io` before `lib`.
+    pub io: Mutex<()>,
 }
 
 impl AppState {
@@ -39,12 +45,20 @@ impl AppState {
         dir
     }
 
+    /// Takes the library write lock (see [`AppState::io`]).
+    pub fn io_lock(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.io.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Writes index.json. A failure (read-only or vanished folder, file
     /// locked) is reported — otherwise names/tags/favorites would silently be
-    /// lost at the next start.
+    /// lost at the next start. Callers hold [`AppState::io_lock`] (startup
+    /// excepted), so writes stay in order; the library itself is only
+    /// snapshotted, so `list_shots` (main thread) never waits for the disk or
+    /// the Windows lock retries.
     pub fn persist(&self) -> Result<(), String> {
         let path = self.index_path();
-        let lib = self.lib.lock().unwrap();
+        let lib = self.lib.lock().unwrap().clone();
         screencap_core::save_library(&lib, &path).map_err(|e| {
             crate::settings::tr(
                 format!("Bibliothek nicht gespeichert (index.json): {e}"),

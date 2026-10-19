@@ -284,3 +284,51 @@ sowie Unmaintained-Hinweise, neu `zbus_names`/`zvariant` nur Linux).
 **Weiterhin offen:** zip-Advisories (upstream); dauerhaft gesperrte JPG beim
 JPG→PNG-Überschreiben bleibt liegen und wird beim nächsten Abgleich als Import
 aufgenommen; Thumbnail-Cache-Schlüssel (siehe Abschnitt 7).
+
+## 9. Runde 2 – Verifikation (unabhängige Zweitprüfung, 2026-10-20)
+
+Basis `0944054`. Diff `5e927e3..0944054` gegengelesen (Schwerpunkt: neue
+Nebenläufigkeit durch `async` + `spawn_blocking`, Windows-Pfade), alle Tests und
+Typchecks neu ausgeführt, die UI-Szenarien erneut und um eigene ergänzt.
+
+**Bestätigt:** BOM-Toleranz, Windows-Namensregeln, Import-Bereinigung,
+`D:`/`~`/relative Ablage-Ordner, Groß-/Kleinschreibung beim Überschreiben,
+lokalisierte Dialogknöpfe (Abbrechen löscht nicht), Fehler-Toasts, Esc in
+Hilfe/Einstellungen, Doppelklick-Sperre, Strg in DE-Windows-Texten. Die
+Global-Shortcut-Registrierung aus dem Worker-Thread ist unbedenklich (das Plugin
+leitet sie selbst auf den Hauptthread um), ebenso Tray-Texte.
+
+**Widerlegt / neu behoben:**
+
+| Befund | Folge | Behebung |
+|---|---|---|
+| Durch `async` liefen Schreibbefehle (Umbenennen, Tags, Favorit, Löschen, Speichern, Import, Abgleich) jetzt **parallel** zum Ordnerwechsel. `set_settings` stellt erst die Einstellungen auf den neuen Ordner und lädt danach dessen Index — ein Schreibvorgang dazwischen schrieb die **alte** Bibliothek in die `index.json` des **neuen** Ordners (Namen/Tags dort verloren); ein laufender Import legte Einträge für Dateien an, die im alten Ordner lagen. Vorher serialisierte der Hauptthread das. | Datenverlust (selten, Zeitfenster) | `AppState::io`: ein Schreib-Lock für alle Bibliotheks-Schreibbefehle und den kompletten Ordnerwechsel. Lesen (`list_shots`, `get_image`, `get_thumb`) bleibt frei. |
+| Ordnerwechsel vs. Aufnahme: die Prüfung „läuft eine Aufnahme?“ und der Start einer Aufnahme konnten sich überholen (Prüfung negativ, Aufnahme startet, Ziel-Ordner noch der alte). | Aufnahme im falschen Ordner | `do_capture` setzt das Aufnahme-Flag und bestimmt den Ziel-Ordner unter demselben Lock; während der eigentlichen Aufnahme (Auswahl ziehen) ist es nicht gehalten, beim Ablegen wieder. |
+| `persist()` hielt die Bibliotheks-Sperre während des Schreibens samt Windows-Sperr-Wiederholungen; `list_shots` läuft synchron auf dem Hauptthread und wartete mit. | UI-Hänger bis ~2,7 s bei gesperrter `index.json` (OneDrive) | Index wird als Kopie geschrieben (Reihenfolge sichert der Schreib-Lock). |
+| `retry_io` wartete laut Doku „~1,5 s“, tatsächlich 2,7 s. | Längere Wartezeit als dokumentiert | 40, 80 … 320 ms = 1,44 s. |
+| Editor: Speichern/Löschen läuft, eine neue Aufnahme öffnet den Editor (Kürzel) → das späte Ergebnis sprang zur alten Aufnahme zurück und setzte den Änderungsstand der neuen auf „gespeichert“ (Verlassen fragte nicht mehr). Im Browser mit dem alten Code nachgestellt. | Ungespeicherte Änderungen still verworfen | Ergebnis wird nur angewandt, wenn noch dieselbe Aufnahme offen ist. |
+| Update-Installationsfehler zeigten den Präfix doppelt („Update fehlgeschlagen: Update fehlgeschlagen: …“) in Banner und Einstellungen — die Runde-2-Szenarien prüften nur `includes`. Im Browser mit dem alten Code nachgestellt. | Kosmetik (L13) | Frontend zeigt die Backend-Meldung unverändert (trägt den Präfix schon). |
+| Leerer `impl Settings {}`-Block | – | entfernt |
+
+**Stichproben L1–L13 an nicht genannten Stellen:** kein `window.confirm/alert/prompt`
+im Code; EN-Texte sagen weiter „Ctrl“, DE „Strg“; Undo/Redo-Tooltips ohne
+Kürzel; Region-Fenster darf `get_settings` aufrufen (App-Befehle ohne
+App-Manifest sind für alle Fenster erlaubt); Updater-Endpoint HTTPS, Pubkey gesetzt;
+verbleibende rohe `to_string()`-Fehler nur für interne Fälle (JoinError,
+Thumbnail-Lesefehler — die Karte bleibt dann ohne Vorschau, bewusst ohne Meldung pro Karte).
+
+**Testlauf:** `cargo test --workspace` 17 + 23 grün; `cargo clippy --workspace
+--all-targets` 0 Warnungen auf macOS und für `x86_64-pc-windows-msvc` (nur
+Typcheck, nichts gelinkt/ausgeführt); `pnpm build` fehlerfrei; `pnpm audit` ohne
+Befund; `cargo audit` wie in Abschnitt 8 (zip 4.6.1 upstream). UI im
+Headless-Chromium: 20/20 + 3/3 Windows-UA + 5/5 Layout (860×560) + 4/4 neue
+Szenarien (Speichern bzw. Löschen läuft während eine neue Aufnahme den Editor
+öffnet; Installationsfehler-Präfix in Banner und Einstellungen). Der neue
+Schreib-Lock ist nur gegengelesen und typgeprüft — echte Parallelität (Tauri-
+Runtime) lief hier nicht.
+
+**Zusätzlich nur auf echter Hardware prüfbar:**
+
+- [ ] Beide: großen Import (100+ Bilder) starten und sofort den Ablage-Ordner wechseln → Wechsel wartet, danach stimmen beide Ordner (Index-Einträge nur für vorhandene Dateien)
+- [ ] Beide: Editor mit Änderungen speichern und währenddessen per Kürzel aufnehmen (Editor-nach-Aufnahme an) → bleibt bei der neuen Aufnahme
+- [ ] Windows: `index.json` in OneDrive-Ordner, während des Syncs Tags setzen → Bibliothek bleibt bedienbar

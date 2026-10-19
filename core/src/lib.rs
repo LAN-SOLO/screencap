@@ -259,7 +259,8 @@ pub fn retry_io<T>(mut op: impl FnMut() -> std::io::Result<T>) -> std::io::Resul
             Ok(v) => return Ok(v),
             Err(e) if attempt < 8 && cfg!(windows) && is_transient_lock(&e) => {
                 attempt += 1;
-                std::thread::sleep(std::time::Duration::from_millis(25 * attempt * attempt / 2 + 20));
+                // 40, 80 … 320 ms — 1.44 s in total
+                std::thread::sleep(std::time::Duration::from_millis(40 * attempt));
             }
             Err(e) => return Err(e),
         }

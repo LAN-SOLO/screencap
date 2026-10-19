@@ -138,7 +138,7 @@ const de: Content = {
         'Hinweis: ⌘C/⌘V und ⌥-Ziehen duplizieren Objekte innerhalb des Editors — ins System-Clipboard kopiert das fertige Bild der „Kopieren“-Knopf in Bibliothek bzw. Editor-Seitenleiste.',
         '„Speichern“ überschreibt die Datei, „Als Kopie speichern“ legt eine neue Datei an (Typ „Bearbeitet“) und lässt das Original unangetastet. Bearbeitungen werden immer als PNG gespeichert — eine JPG-Aufnahme wird beim Überschreiben zur PNG-Datei gleichen Namens (ist der Name schon vergeben, mit -2, -3 …).',
         'Ein noch offenes Textfeld wird beim Speichern oder Werkzeugwechsel automatisch übernommen. Zurück zur Bibliothek (Knopf oder Esc) fragt nach („Verwerfen“ / „Abbrechen“), wenn ungespeicherte Änderungen verloren gingen — ebenso, wenn währenddessen eine neue Aufnahme den Editor öffnen will.',
-        'Während gespeichert wird, sind „Speichern“, „Als Kopie speichern“ und „Löschen“ kurz gesperrt — ein Doppelklick legt also keine zweite Kopie an. Lässt sich ein Name oder Tag nicht speichern, erscheint die Meldung und der alte Name bleibt stehen.',
+        'Während gespeichert wird, sind „Speichern“, „Als Kopie speichern“ und „Löschen“ kurz gesperrt — ein Doppelklick legt also keine zweite Kopie an. Öffnet eine neue Aufnahme währenddessen den Editor, bleibt er bei der neuen Aufnahme; das Speichern der alten läuft im Hintergrund zu Ende. Lässt sich ein Name oder Tag nicht speichern, erscheint die Meldung und der alte Name bleibt stehen.',
       ],
     },
     {
@@ -192,7 +192,7 @@ const de: Content = {
       body: [
         '• Sprache — Deutsch / English',
         '• Modus — Dunkel (Standard) oder Hell; die Oberfläche wechselt sofort nach dem Speichern',
-        '• Ablage-Ordner — wohin Aufnahmen gespeichert werden (leer = ~/Pictures/screencap). Nur vollständige Pfade (z. B. D:\\Bilder\\screencap oder ~/Bilder/screencap); ein bloßes „D:“ wird zu „D:\\“. Während einer Aufnahme lässt sich der Ordner nicht wechseln.',
+        '• Ablage-Ordner — wohin Aufnahmen gespeichert werden (leer = ~/Pictures/screencap). Nur vollständige Pfade (z. B. D:\\Bilder\\screencap oder ~/Bilder/screencap); ein bloßes „D:“ wird zu „D:\\“. Während einer Aufnahme lässt sich der Ordner nicht wechseln; laufende Importe oder Speichervorgänge werden vor dem Wechsel abgeschlossen.',
         '• Format — PNG (verlustfrei) oder JPG (kleiner)',
         '• Standard-Verzögerung — gilt für Kürzel- und Tray-Aufnahmen und ist auch die Vorauswahl im Verzögerungs-Dropdown (krumme Werte wie 7 s erscheinen dort als eigener Eintrag)',
         '• Aufnahme zusätzlich in die Zwischenablage — direkt einfügbar nach jedem Schuss',
@@ -341,7 +341,7 @@ const en: Content = {
         'Note: ⌘C/⌘V and ⌥-drag duplicate objects inside the editor — the finished image goes to the system clipboard via the “Copy” button in the library or the editor side panel.',
         '“Save” overwrites the file, “Save as copy” creates a new file (kind “Edited”) and leaves the original untouched. Edits are always saved as PNG — overwriting a JPG capture turns it into a PNG of the same name (with -2, -3 … if that name is taken).',
         'A text box that is still open is committed automatically on save or when switching tools. Going back to the library (button or Esc) asks first (“Discard” / “Cancel”) if unsaved changes would be lost — likewise when a new capture wants to open the editor meanwhile.',
-        'While saving, “Save”, “Save as copy” and “Delete” are briefly disabled — a double-click doesn’t create a second copy. If a name or tag can’t be saved, the message appears and the old name stays.',
+        'While saving, “Save”, “Save as copy” and “Delete” are briefly disabled — a double-click doesn’t create a second copy. If a new capture opens the editor meanwhile, it stays on the new capture; saving the old one finishes in the background. If a name or tag can’t be saved, the message appears and the old name stays.',
       ],
     },
     {
@@ -395,7 +395,7 @@ const en: Content = {
       body: [
         '• Language — Deutsch / English',
         '• Mode — Dark (default) or Light; the UI switches right after saving',
-        '• Library folder — where captures are stored (empty = ~/Pictures/screencap). Full paths only (e.g. D:\\Pictures\\screencap or ~/Pictures/screencap); a bare “D:” becomes “D:\\”. The folder can’t be switched while a capture is running.',
+        '• Library folder — where captures are stored (empty = ~/Pictures/screencap). Full paths only (e.g. D:\\Pictures\\screencap or ~/Pictures/screencap); a bare “D:” becomes “D:\\”. The folder can’t be switched while a capture is running; running imports or saves finish before the switch.',
         '• Format — PNG (lossless) or JPG (smaller)',
         '• Default delay — applies to shortcut and tray captures and is preselected in the delay dropdown (odd values like 7 s show up there as their own entry)',
         '• Also copy captures to the clipboard — paste right after every shot',

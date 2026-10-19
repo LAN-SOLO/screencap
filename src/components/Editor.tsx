@@ -478,6 +478,11 @@ export function Editor({
   // Editor noch sichtbar? Ein Speichern, das erst nach „Zurück“ fertig wird,
   // darf den Editor nicht wieder öffnen
   const mountedRef = useRef(true);
+  // welche Aufnahme gerade angezeigt wird: öffnet eine neue Aufnahme den
+  // Editor, während noch gespeichert/gelöscht wird, darf das späte Ergebnis
+  // weder zurückspringen noch den Änderungsstand der neuen Aufnahme löschen
+  const shotIdRef = useRef(shot.id);
+  shotIdRef.current = shot.id;
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -987,11 +992,13 @@ export function Editor({
     if (textPos) commitText();
     const dataUrl = bakeToCanvas(list).toDataURL('image/png');
     const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    const savedId = shot.id;
     setBusy(true);
     api
-      .saveEdit(shot.id, b64, mode)
+      .saveEdit(savedId, b64, mode)
       .then((updated) => {
-        if (!mountedRef.current) return; // inzwischen zurück in der Bibliothek
+        // inzwischen zurück in der Bibliothek oder eine andere Aufnahme offen
+        if (!mountedRef.current || shotIdRef.current !== savedId) return;
         showToast(t.saved);
         setDirty(false);
         onShotChanged(updated);
@@ -1190,11 +1197,12 @@ export function Editor({
                 if (busyRef.current) return;
                 if (!(await askConfirm(t.deleteConfirm, t.deleteOk, t.cancel))) return;
                 if (busyRef.current) return;
+                const deletedId = shot.id;
                 setBusy(true);
                 api
-                  .deleteShot(shot.id)
+                  .deleteShot(deletedId)
                   .then(() => {
-                    if (mountedRef.current) onShotChanged(null);
+                    if (mountedRef.current && shotIdRef.current === deletedId) onShotChanged(null);
                   })
                   .catch(showError)
                   .finally(() => {
