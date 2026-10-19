@@ -114,8 +114,9 @@ const de: Content = {
         'Verzögerung: Das Dropdown neben den Buttons wartet 3, 5 oder 10 Sekunden vor der Aufnahme — Zeit, um Menüs zu öffnen. Die Standard-Verzögerung für Kürzel stellst du in den Einstellungen ein.',
         'Das screencap-Fenster versteckt sich während der Aufnahme automatisch, damit es nicht mit aufs Bild kommt.',
         'macOS fragt bei der ersten Aufnahme nach der Bildschirmaufnahme-Freigabe (Systemeinstellungen → Datenschutz & Sicherheit → Bildschirmaufnahme) — einmal erlauben genügt.',
-        'Windows: Ausschnitt — über dem Bildschirm unter dem Mauszeiger erscheint ein abgedunkeltes Overlay; Bereich ziehen, Esc oder Rechtsklick bricht ab, die Größe in Pixeln steht unter der Auswahl. Fenster — aufgenommen wird das Fenster im Vordergrund (ohne Schatten); mit Verzögerung bleibt Zeit, das gewünschte Fenster anzuklicken. Bildschirm — der Monitor unter dem Mauszeiger.',
+        'Windows: Ausschnitt — über dem Bildschirm unter dem Mauszeiger erscheint ein abgedunkeltes Overlay; Bereich ziehen, Esc, Rechtsklick oder Alt+F4 bricht ab, die Größe in Pixeln steht unter der Auswahl. Fenster — aufgenommen wird das Fenster im Vordergrund (ohne Schatten); mit Verzögerung bleibt Zeit, das gewünschte Fenster anzuklicken. Bildschirm — der Monitor unter dem Mauszeiger.',
         'Linux: Aufnahme ist noch nicht umgesetzt — Bibliothek und Editor funktionieren, die Aufnahme-Knöpfe melden einen Fehler.',
+        'Es läuft immer nur eine Aufnahme gleichzeitig — ein zweites Kürzel, solange Auswahl oder Overlay noch offen sind, wird ignoriert. Schlägt eine Kürzel- oder Tray-Aufnahme fehl (z. B. Windows: kein Fenster im Vordergrund), holt screencap sein Fenster nach vorn und zeigt die Meldung.',
       ],
     },
     {
@@ -310,8 +311,9 @@ const en: Content = {
         'Delay: the dropdown next to the buttons waits 3, 5 or 10 seconds before capturing — time to open menus. The default delay for shortcuts is set in Settings.',
         'The screencap window hides itself during capture so it doesn’t end up in the shot.',
         'macOS asks for screen-recording permission on the first capture (System Settings → Privacy & Security → Screen Recording) — allowing once is enough.',
-        'Windows: Region — a dimmed overlay appears on the monitor under the mouse pointer; drag an area, Esc or right-click cancels, the size in pixels is shown below the selection. Window — captures the foreground window (no shadow); a delay gives you time to click the window you want. Screen — the monitor under the mouse pointer.',
+        'Windows: Region — a dimmed overlay appears on the monitor under the mouse pointer; drag an area, Esc, right-click or Alt+F4 cancels, the size in pixels is shown below the selection. Window — captures the foreground window (no shadow); a delay gives you time to click the window you want. Screen — the monitor under the mouse pointer.',
         'Linux: capturing is not implemented yet — library and editor work, the capture buttons report an error.',
+        'Only one capture runs at a time — a second shortcut while the selection or overlay is still open is ignored. If a shortcut or tray capture fails (e.g. Windows: no window in the foreground), screencap brings its window forward and shows the message.',
       ],
     },
     {

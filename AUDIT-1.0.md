@@ -155,7 +155,9 @@ prüfen ist.
 
 - [ ] Setup (NSIS) installiert, App startet ohne Konsolenfenster, Icon ohne weiße Ecken
 - [ ] Ausschnitt: Overlay erscheint auf dem Monitor unter dem Mauszeiger, Größenanzeige stimmt, Ergebnis deckt sich pixelgenau mit der Auswahl (auch bei 150 %)
-- [ ] Esc und Rechtsklick im Overlay brechen ab, Overlay verschwindet
+- [ ] Esc, Rechtsklick und Alt+F4 im Overlay brechen ab, Overlay verschwindet (kein Hänger, nächste Aufnahme sofort möglich)
+- [ ] Fenster-Kürzel (Ctrl+Shift+8) ohne Vordergrundfenster (Desktop angeklickt) → screencap kommt nach vorn und meldet „Kein Fenster im Vordergrund“
+- [ ] Kürzel zweimal schnell hintereinander → nur ein Overlay, eine Aufnahme
 - [ ] Fenster: mit 3 s Verzögerung ein anderes Fenster anklicken → genau dieses Fenster im Bild, screencap selbst nicht
 - [ ] Bildschirm auf dem zweiten Monitor (Mauszeiger dort)
 - [ ] Kürzel Ctrl+Shift+7/8/9 aus anderen Apps; Tray-Symbol im Infobereich mit Menü
@@ -174,3 +176,55 @@ prüfen ist.
 - `pnpm audit` — keine Befunde; `cargo audit` — nur die oben genannten offenen Upstream-Punkte
 - UI-Durchlauf im Headless-Chrome mit IPC-Mocks: 38 + 8 + 7 Prüfungen (Bibliothek, Editor, Einstellungen, Hilfe, Windows-User-Agent, Auswahl-Overlay) grün; das Test-Gerüst lag nur im Scratch-Verzeichnis und ist nicht Teil des Repos
 - Nicht lokal gebaut: Release-Bundles (`tauri build`) — kommen aus der CI (`workflow_dispatch`)
+
+## 7. Verifikation (unabhängige Zweitprüfung, 2026-10-19)
+
+Gegenprüfung des Stands `23e2dda` (Diff `1ffb614..23e2dda` vollständig gelesen),
+alle Suiten selbst neu ausgeführt, danach eigene Korrekturen.
+
+**Bestätigt:** Testzahlen (13 + 16), `pnpm build`, `pnpm audit` sauber, `cargo audit`
+nur zip/unmaintained, Version 1.0.0 in `package.json`, `tauri.conf.json`,
+`src-tauri/Cargo.toml`, `Cargo.lock` (Settings-Dialog liest `getVersion()`),
+IPC-Namen/Argumente Frontend ↔ Rust, Pfad-Prüfung der Index-Einträge,
+Dialog-Rechte (`confirm` läuft über `plugin:dialog|message`), CI-Workflow
+unverändert tragfähig (Tests laufen dort auch auf Windows; keine Unix-Pfad-Annahmen).
+
+**Widerlegt / korrigiert:**
+
+- *Esc-Fix galt auch für Windows:* `capture_outcome` wertete jeden Fehler bei
+  Ausschnitt/Fenster als Abbruch — unter Windows verschwanden damit echte Fehler
+  („Kein Fenster im Vordergrund“, Overlay-/xcap-Fehler) kommentarlos. Jetzt nur
+  unter macOS (dort beendet `screencapture` sich bei Esc mit Fehlercode); Windows
+  meldet einen Abbruch ohnehin als `Ok` ohne Datei. Tests für beide Fälle.
+- *Windows-Code „nicht lokal prüfbar“:* doch — `cargo xwin check/clippy --target
+  x86_64-pc-windows-msvc --workspace --all-targets` lief mit Stub-Werkzeugen für
+  `llvm-lib`/`llvm-rc` (nur Typprüfung, kein Linken) fehlerfrei durch.
+- *Region-Capability „nur core:default“:* stimmt für Plugin-Rechte; eigene
+  App-Befehle sind in Tauri 2 ohne App-Manifest für jedes Fenster erreichbar. Das
+  Overlay lädt aber nur das eigene Bundle — kein zusätzliches Risiko, nur präzisiert.
+
+**Zusätzlich behoben:**
+
+- Gleichzeitige Aufnahmen (Kürzel zweimal, Tray + Kürzel): unter Windows
+  zerstörte die zweite das Overlay der ersten, der erste Thread räumte danach den
+  Rückkanal und das Overlay der zweiten ab → bis zu 180 s Hänger. Jetzt läuft
+  immer nur eine Aufnahme (`AppState.capturing`).
+- Overlay per Alt+F4 geschlossen → Aufnahme wartete 180 s; jetzt sofort Abbruch.
+- Fehler bei Kürzel-/Tray-Aufnahmen landeten im Nichts; jetzt holt screencap das
+  Fenster nach vorn und zeigt die Meldung (Event `capture-error`).
+- Fehlermeldungen aus Rust (Löschen, Kürzel, Ablage-Ordner, Updates, Aufnahme)
+  waren immer deutsch — jetzt in der eingestellten Sprache.
+- Einstellungen: scheiterte das Schreiben von `settings.json`, blieben neue
+  Kürzel/Autostart trotzdem aktiv — jetzt zurückgerollt.
+- Clippy-Warnung `needless_late_init` behoben (0 Warnungen).
+- Hilfe (DE/EN) um Alt+F4, „eine Aufnahme gleichzeitig“ und Fehleranzeige ergänzt.
+
+**Testlauf nach den Korrekturen:** `cargo test --workspace` 13 + 17 grün,
+`cargo clippy --workspace --all-targets` 0 Warnungen (macOS und Windows-Target),
+`pnpm build` fehlerfrei. Die UI-Änderung (`capture-error`-Toast) ist nur per
+Typprüfung abgesichert, nicht im Browser-Harness wiederholt.
+
+**Weiterhin offen (bekannt):** Thumbnail-Cache-Schlüssel (Datei/Maße/Größe) kann
+theoretisch bei byte-gleich großem Überschreiben veralten (nur bis Neustart);
+JPG→PNG-Überschreiben unter Windows bei gesperrter JPG lässt die alte Datei
+liegen (wird beim nächsten Abgleich als Import aufgenommen).

@@ -1,5 +1,5 @@
 use crate::capture::{self, make_thumb};
-use crate::settings::{self, Settings};
+use crate::settings::{self, tr, Settings};
 use crate::state::AppState;
 use base64::Engine;
 use screencap_core::{Filter, Shot, ShotKind};
@@ -35,6 +35,10 @@ fn to_dto(s: &Shot) -> ShotDto {
         tags: s.tags.clone(),
         favorite: s.favorite,
     }
+}
+
+fn unknown_shot() -> String {
+    tr("unbekannte Aufnahme", "unknown capture")
 }
 
 fn b64() -> base64::engine::general_purpose::GeneralPurpose {
@@ -88,7 +92,7 @@ pub fn get_thumb(st: State<'_, AppState>, id: Uuid) -> Result<String, String> {
     if !thumb_path.exists() {
         let file = {
             let lib = st.lib.lock().unwrap();
-            lib.get(id).ok_or("unbekannte Aufnahme")?.file.clone()
+            lib.get(id).ok_or_else(unknown_shot)?.file.clone()
         };
         make_thumb(&st.lib_dir().join(&file), &thumb_path);
     }
@@ -100,7 +104,7 @@ pub fn get_thumb(st: State<'_, AppState>, id: Uuid) -> Result<String, String> {
 pub fn get_image(st: State<'_, AppState>, id: Uuid) -> Result<String, String> {
     let file = {
         let lib = st.lib.lock().unwrap();
-        lib.get(id).ok_or("unbekannte Aufnahme")?.file.clone()
+        lib.get(id).ok_or_else(unknown_shot)?.file.clone()
     };
     let data = std::fs::read(st.lib_dir().join(&file)).map_err(|e| e.to_string())?;
     Ok(format!("data:{};base64,{}", mime_for(&file), b64().encode(data)))
@@ -109,7 +113,7 @@ pub fn get_image(st: State<'_, AppState>, id: Uuid) -> Result<String, String> {
 #[tauri::command]
 pub fn rename_shot(app: AppHandle, st: State<'_, AppState>, id: Uuid, name: String) -> Result<(), String> {
     if !st.lib.lock().unwrap().rename(id, &name) {
-        return Err("Name darf nicht leer sein".into());
+        return Err(tr("Name darf nicht leer sein", "Name must not be empty"));
     }
     st.persist();
     let _ = app.emit("library-changed", ());
@@ -134,14 +138,17 @@ pub fn set_favorite(app: AppHandle, st: State<'_, AppState>, id: Uuid, favorite:
 pub fn delete_shot(app: AppHandle, st: State<'_, AppState>, id: Uuid) -> Result<(), String> {
     let file = {
         let lib = st.lib.lock().unwrap();
-        lib.get(id).ok_or("unbekannte Aufnahme")?.file.clone()
+        lib.get(id).ok_or_else(unknown_shot)?.file.clone()
     };
     let path = st.lib_dir().join(&file);
     // Windows: a file another program holds open can't be deleted — keep the
     // index entry then, otherwise the next sync would re-adopt it as import
     if let Err(e) = std::fs::remove_file(&path) {
         if path.exists() {
-            return Err(format!("Datei konnte nicht gelöscht werden: {e}"));
+            return Err(tr(
+                format!("Datei konnte nicht gelöscht werden: {e}"),
+                format!("File could not be deleted: {e}"),
+            ));
         }
     }
     st.lib.lock().unwrap().remove(id);
@@ -155,7 +162,7 @@ pub fn delete_shot(app: AppHandle, st: State<'_, AppState>, id: Uuid) -> Result<
 pub fn reveal_shot(st: State<'_, AppState>, id: Uuid) -> Result<(), String> {
     let file = {
         let lib = st.lib.lock().unwrap();
-        lib.get(id).ok_or("unbekannte Aufnahme")?.file.clone()
+        lib.get(id).ok_or_else(unknown_shot)?.file.clone()
     };
     tauri_plugin_opener::reveal_item_in_dir(st.lib_dir().join(file)).map_err(|e| e.to_string())
 }
@@ -164,7 +171,7 @@ pub fn reveal_shot(st: State<'_, AppState>, id: Uuid) -> Result<(), String> {
 pub fn copy_shot(st: State<'_, AppState>, id: Uuid) -> Result<(), String> {
     let file = {
         let lib = st.lib.lock().unwrap();
-        lib.get(id).ok_or("unbekannte Aufnahme")?.file.clone()
+        lib.get(id).ok_or_else(unknown_shot)?.file.clone()
     };
     capture::copy_image_to_clipboard(&st.lib_dir().join(file))
 }
@@ -214,7 +221,7 @@ pub fn save_edit(
 ) -> Result<ShotDto, String> {
     let data = b64().decode(png_base64).map_err(|e| e.to_string())?;
     if image::guess_format(&data).ok() != Some(image::ImageFormat::Png) {
-        return Err("Editor-Daten sind kein PNG".into());
+        return Err(tr("Editor-Daten sind kein PNG", "Editor data is not a PNG"));
     }
     let (width, height) = image::load_from_memory_with_format(&data, image::ImageFormat::Png)
         .map(|i| (i.width(), i.height()))
@@ -222,7 +229,7 @@ pub fn save_edit(
     let dir = st.lib_dir();
     let (old_file, old_name) = {
         let lib = st.lib.lock().unwrap();
-        let s = lib.get(id).ok_or("unbekannte Aufnahme")?;
+        let s = lib.get(id).ok_or_else(unknown_shot)?;
         (s.file.clone(), s.name.clone())
     };
     let stem = std::path::Path::new(&old_file)
@@ -232,10 +239,9 @@ pub fn save_edit(
         .to_string();
 
     if mode != "overwrite" && mode != "copy" {
-        return Err("unbekannter Speichermodus".into());
+        return Err(tr("unbekannter Speichermodus", "unknown save mode"));
     }
-    let result_id;
-    if mode == "overwrite" {
+    let result_id = if mode == "overwrite" {
         // edits are always saved as PNG; swap the file if it wasn't one
         let new_file = overwrite_target(&dir, &stem, &old_file);
         write_atomic(&dir, &new_file, &data)?;
@@ -252,7 +258,7 @@ pub fn save_edit(
             }
         }
         make_thumb(&dir.join(&new_file), &st.thumbs_dir().join(format!("{id}.png")));
-        result_id = id;
+        id
     } else {
         let new_file = copy_target(&dir, &stem);
         write_atomic(&dir, &new_file, &data)?;
@@ -263,12 +269,14 @@ pub fn save_edit(
             nid
         };
         make_thumb(&dir.join(&new_file), &st.thumbs_dir().join(format!("{new_id}.png")));
-        result_id = new_id;
-    }
+        new_id
+    };
     st.persist();
     let _ = app.emit("library-changed", ());
     let lib = st.lib.lock().unwrap();
-    lib.get(result_id).map(to_dto).ok_or("Speichern fehlgeschlagen".into())
+    lib.get(result_id)
+        .map(to_dto)
+        .ok_or_else(|| tr("Speichern fehlgeschlagen", "Saving failed"))
 }
 
 #[tauri::command]
@@ -361,9 +369,17 @@ pub fn set_settings(app: AppHandle, st: State<'_, AppState>, new: Settings) -> R
     let new_dir = new.resolved_library_dir();
     if old.resolved_library_dir() != new_dir {
         std::fs::create_dir_all(&new_dir)
-            .map_err(|e| format!("Ablage-Ordner „{}“ nicht nutzbar: {e}", new_dir.display()))?;
+            .map_err(|e| {
+                tr(
+                    format!("Ablage-Ordner „{}“ nicht nutzbar: {e}", new_dir.display()),
+                    format!("Library folder “{}” not usable: {e}", new_dir.display()),
+                )
+            })?;
         if !new_dir.is_dir() {
-            return Err(format!("Ablage-Ordner „{}“ ist kein Ordner", new_dir.display()));
+            return Err(tr(
+                format!("Ablage-Ordner „{}“ ist kein Ordner", new_dir.display()),
+                format!("Library folder “{}” is not a folder", new_dir.display()),
+            ));
         }
     }
 
@@ -395,8 +411,19 @@ pub fn set_settings(app: AppHandle, st: State<'_, AppState>, new: Settings) -> R
         }
     }
 
-    settings::store(&app, &new)?;
+    if let Err(e) = settings::store(&app, &new) {
+        // nothing persisted — undo what was already switched over
+        if shortcuts_changed {
+            let _ = crate::register_shortcuts(&app, &old);
+        }
+        if old.autostart != new.autostart {
+            use tauri_plugin_autostart::ManagerExt;
+            let _ = if old.autostart { app.autolaunch().enable() } else { app.autolaunch().disable() };
+        }
+        return Err(e);
+    }
     *st.settings.lock().unwrap() = new.clone();
+    settings::set_message_language(&new.language);
 
     if old.language != new.language {
         crate::update_tray_language(&app, &new);
@@ -448,7 +475,10 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfoDto>, Strin
             date: update.date.map(|d| d.to_string()),
         })),
         Ok(None) => Ok(None),
-        Err(e) => Err(format!("Update-Prüfung fehlgeschlagen: {e}")),
+        Err(e) => Err(tr(
+            format!("Update-Prüfung fehlgeschlagen: {e}"),
+            format!("Update check failed: {e}"),
+        )),
     }
 }
 
@@ -459,12 +489,12 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
     let update = updater
         .check()
         .await
-        .map_err(|e| format!("Update-Prüfung fehlgeschlagen: {e}"))?
-        .ok_or("Kein Update verfügbar")?;
+        .map_err(|e| tr(format!("Update-Prüfung fehlgeschlagen: {e}"), format!("Update check failed: {e}")))?
+        .ok_or_else(|| tr("Kein Update verfügbar", "No update available"))?;
     update
         .download_and_install(|_, _| {}, || {})
         .await
-        .map_err(|e| format!("Update fehlgeschlagen: {e}"))?;
+        .map_err(|e| tr(format!("Update fehlgeschlagen: {e}"), format!("Update failed: {e}")))?;
     app.restart();
 }
 

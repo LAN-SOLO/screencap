@@ -72,7 +72,10 @@ fn run_screencapture(
     cmd.arg(target);
     let status = cmd.status().map_err(|e| format!("screencapture: {e}"))?;
     if !status.success() {
-        return Err("screencapture meldete einen Fehler".into());
+        return Err(crate::settings::tr(
+            "screencapture meldete einen Fehler",
+            "screencapture reported an error",
+        ));
     }
     Ok(())
 }
@@ -120,7 +123,7 @@ fn run_screencapture(
             .find(|m| m.is_primary().unwrap_or(false))
             .cloned()
             .or_else(|| all.into_iter().next())
-            .ok_or_else(|| "Kein Bildschirm gefunden".to_string())
+            .ok_or_else(|| crate::settings::tr("Kein Bildschirm gefunden", "No screen found"))
     };
 
     let img: image::RgbaImage = match kind {
@@ -139,7 +142,7 @@ fn run_screencapture(
                 .filter(|w| w.pid().map(|p| p != own_pid).unwrap_or(true))
                 .filter(|w| !w.is_minimized().unwrap_or(false))
                 .find(|w| w.is_focused().unwrap_or(false))
-                .ok_or_else(|| "Kein Fenster im Vordergrund".to_string())?;
+                .ok_or_else(|| crate::settings::tr("Kein Fenster im Vordergrund", "No window in the foreground"))?;
             win.capture_image().map_err(|e| e.to_string())?
         }
         _ => {
@@ -217,21 +220,42 @@ fn run_screencapture(
     _window_shadow: bool,
     _target: &Path,
 ) -> Result<(), String> {
-    Err("Aufnahme ist bisher nur unter macOS und Windows umgesetzt".into())
+    Err(crate::settings::tr(
+        "Aufnahme ist bisher nur unter macOS und Windows umgesetzt",
+        "Capturing is only implemented on macOS and Windows so far",
+    ))
 }
 
 /// What a finished capture run means: `Ok(true)` = a file to file away,
 /// `Ok(false)` = nothing to do (cancelled), `Err` = a real failure.
-/// `screencapture -i` exits non-zero when the user presses Esc, so for the
-/// interactive kinds a missing file is a cancel, not an error.
-pub fn capture_outcome(kind: ShotKind, captured: bool, result: Result<(), String>) -> Result<bool, String> {
+/// macOS: `screencapture -i` exits non-zero when the user presses Esc, so for
+/// the interactive kinds a missing file is a cancel, not an error
+/// (`exit_code_means_cancel`). Windows: a cancel in the overlay returns
+/// `Ok(())` without a file — an `Err` there (no foreground window, overlay
+/// or xcap failure) is real and must reach the user.
+pub fn capture_outcome(
+    kind: ShotKind,
+    captured: bool,
+    result: Result<(), String>,
+    exit_code_means_cancel: bool,
+) -> Result<bool, String> {
     if captured {
         return Ok(true);
     }
     match (kind, result) {
-        (ShotKind::Region | ShotKind::Window, _) => Ok(false),
+        (ShotKind::Region | ShotKind::Window, Err(_)) if exit_code_means_cancel => Ok(false),
         (_, Err(e)) => Err(e),
         (_, Ok(())) => Ok(false),
+    }
+}
+
+/// Clears the "capture running" flag when a capture ends (also on early
+/// returns and errors).
+struct CaptureGuard<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl Drop for CaptureGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -239,6 +263,13 @@ pub fn capture_outcome(kind: ShotKind, captured: bool, result: Result<(), String
 /// Blocking — call from a worker thread / spawn_blocking.
 pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result<Option<Uuid>, String> {
     let st = app.state::<AppState>();
+    // one capture at a time: a second shortcut press while the region
+    // overlay / screencapture is still open would otherwise race for the
+    // overlay window and the result channel
+    if st.capturing.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Ok(None);
+    }
+    let _guard = CaptureGuard(&st.capturing);
     let (format, window_shadow, default_delay, copy_after, open_editor) = {
         let s = st.settings.lock().unwrap();
         (
@@ -277,7 +308,7 @@ pub fn do_capture(app: &AppHandle, kind: ShotKind, delay: Option<u32>) -> Result
             let _ = w.set_focus();
         }
     }
-    if !capture_outcome(kind, captured, result)? {
+    if !capture_outcome(kind, captured, result, cfg!(target_os = "macos"))? {
         return Ok(None); // user hit Esc
     }
 
@@ -304,23 +335,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn esc_on_interactive_capture_is_a_cancel() {
+    fn esc_on_interactive_capture_is_a_cancel_on_macos() {
         let err = || Err("screencapture meldete einen Fehler".to_string());
-        assert_eq!(capture_outcome(ShotKind::Region, false, err()), Ok(false));
-        assert_eq!(capture_outcome(ShotKind::Window, false, err()), Ok(false));
-        assert_eq!(capture_outcome(ShotKind::Region, false, Ok(())), Ok(false));
+        assert_eq!(capture_outcome(ShotKind::Region, false, err(), true), Ok(false));
+        assert_eq!(capture_outcome(ShotKind::Window, false, err(), true), Ok(false));
+        assert_eq!(capture_outcome(ShotKind::Region, false, Ok(()), true), Ok(false));
+    }
+
+    #[test]
+    fn windows_interactive_errors_are_reported() {
+        // overlay cancel = Ok(()) without file; an Err is a real failure
+        assert_eq!(capture_outcome(ShotKind::Region, false, Ok(()), false), Ok(false));
+        assert!(capture_outcome(ShotKind::Window, false, Err("no window".into()), false).is_err());
+        assert!(capture_outcome(ShotKind::Region, false, Err("overlay".into()), false).is_err());
     }
 
     #[test]
     fn screen_failure_is_reported() {
-        assert!(capture_outcome(ShotKind::Screen, false, Err("x".into())).is_err());
-        assert_eq!(capture_outcome(ShotKind::Screen, false, Ok(())), Ok(false));
+        for mac in [true, false] {
+            assert!(capture_outcome(ShotKind::Screen, false, Err("x".into()), mac).is_err());
+            assert_eq!(capture_outcome(ShotKind::Screen, false, Ok(()), mac), Ok(false));
+        }
     }
 
     #[test]
     fn a_written_file_always_counts() {
-        assert_eq!(capture_outcome(ShotKind::Screen, true, Err("x".into())), Ok(true));
-        assert_eq!(capture_outcome(ShotKind::Region, true, Ok(())), Ok(true));
+        assert_eq!(capture_outcome(ShotKind::Screen, true, Err("x".into()), false), Ok(true));
+        assert_eq!(capture_outcome(ShotKind::Region, true, Ok(()), true), Ok(true));
     }
 
     #[test]

@@ -3,6 +3,7 @@ use crate::settings::Settings;
 use screencap_core::Library;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 
 pub struct AppState {
@@ -15,6 +16,8 @@ pub struct AppState {
     pub shortcut_error: Mutex<Option<String>>,
     /// No settings file existed at startup.
     pub first_run: bool,
+    /// A capture is running (one at a time).
+    pub capturing: AtomicBool,
 }
 
 impl AppState {

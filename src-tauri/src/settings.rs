@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +51,23 @@ impl Default for Settings {
     }
 }
 
+/// UI language for messages produced in Rust (errors shown as toasts or in
+/// the settings dialog) — mirrors `Settings::language`.
+static LANG_DE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_message_language(lang: &str) {
+    LANG_DE.store(lang == "de", Ordering::Relaxed);
+}
+
+/// Picks the German or English variant of a user-facing message.
+pub fn tr(de: impl Into<String>, en: impl Into<String>) -> String {
+    if LANG_DE.load(Ordering::Relaxed) {
+        de.into()
+    } else {
+        en.into()
+    }
+}
+
 /// Longest delay the UI offers / the backend accepts (seconds).
 pub const MAX_DELAY: u32 = 60;
 
@@ -81,9 +99,14 @@ impl Settings {
         let combos = [&self.shortcut_region, &self.shortcut_window, &self.shortcut_screen];
         let mut parsed = Vec::new();
         for c in combos {
-            let sc = Shortcut::from_str(c).map_err(|e| format!("Kürzel „{c}“ ungültig: {e}"))?;
+            let sc = Shortcut::from_str(c).map_err(|e| {
+                tr(format!("Kürzel „{c}“ ungültig: {e}"), format!("Shortcut “{c}” is invalid: {e}"))
+            })?;
             if parsed.contains(&sc) {
-                return Err(format!("Kürzel „{c}“ ist doppelt belegt"));
+                return Err(tr(
+                    format!("Kürzel „{c}“ ist doppelt belegt"),
+                    format!("Shortcut “{c}” is used twice"),
+                ));
             }
             parsed.push(sc);
         }
@@ -136,8 +159,11 @@ pub fn store(app: &tauri::AppHandle, settings: &Settings) -> Result<(), String> 
     let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     let path = settings_path(app);
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json).map_err(|e| format!("Einstellungen nicht gespeichert: {e}"))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("Einstellungen nicht gespeichert: {e}"))
+    let fail = |e: std::io::Error| {
+        tr(format!("Einstellungen nicht gespeichert: {e}"), format!("Settings not saved: {e}"))
+    };
+    std::fs::write(&tmp, json).map_err(fail)?;
+    std::fs::rename(&tmp, &path).map_err(fail)
 }
 
 #[cfg(test)]
@@ -195,7 +221,8 @@ mod tests {
         let bad = Settings { shortcut_window: "Ctrl+Banana".into(), ..Settings::default() };
         assert!(bad.validate_shortcuts().is_err());
         let dup = Settings { shortcut_window: "CmdOrCtrl+Shift+7".into(), ..Settings::default() };
-        assert!(dup.validate_shortcuts().unwrap_err().contains("doppelt"));
+        let err = dup.validate_shortcuts().unwrap_err();
+        assert!(err.contains("doppelt") || err.contains("twice"), "{err}");
     }
 
     #[test]

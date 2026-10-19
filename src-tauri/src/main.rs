@@ -12,7 +12,7 @@ use state::AppState;
 use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 fn show_main_window(app: &AppHandle) {
@@ -25,7 +25,11 @@ fn show_main_window(app: &AppHandle) {
 fn capture_from_shortcut(app: &AppHandle, kind: ShotKind) {
     let app = app.clone();
     std::thread::spawn(move || {
-        let _ = capture::do_capture(&app, kind, None);
+        // no invoke caller to hand the error to — the main window shows it
+        if let Err(e) = capture::do_capture(&app, kind, None) {
+            show_main_window(&app);
+            let _ = app.emit("capture-error", e);
+        }
     });
 }
 
@@ -43,7 +47,7 @@ pub fn register_shortcuts(app: &AppHandle, s: &Settings) -> Result<(), String> {
                 capture_from_shortcut(app, kind);
             }
         })
-        .map_err(|e| format!("Shortcut „{combo}“: {e}"))?;
+        .map_err(|e| settings::tr(format!("Kürzel „{combo}“: {e}"), format!("Shortcut “{combo}”: {e}")))?;
     }
     Ok(())
 }
@@ -106,6 +110,7 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             let (s, existed) = settings::load(&handle);
+            settings::set_message_language(&s.language);
             let lib_dir = s.resolved_library_dir();
             // a vanished custom folder (unplugged drive …) must not kill the
             // app at startup — the folder is re-created on first use
@@ -117,6 +122,7 @@ fn main() {
                 region_tx: Mutex::new(None),
                 shortcut_error: Mutex::new(None),
                 first_run: !existed,
+                capturing: std::sync::atomic::AtomicBool::new(false),
             });
             commands::sync_library_internal(&handle);
             build_tray(app, &s)?;
@@ -133,6 +139,14 @@ fn main() {
                 if window.label() == "main" {
                     api.prevent_close();
                     let _ = window.hide();
+                } else if window.label() == "region" {
+                    // overlay closed by the system (Alt+F4 …) = cancel, so the
+                    // waiting capture doesn't hang until its timeout
+                    let st = window.state::<AppState>();
+                    let tx = st.region_tx.lock().unwrap().take();
+                    if let Some(tx) = tx {
+                        let _ = tx.send(None);
+                    }
                 }
             }
         })

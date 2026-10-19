@@ -135,6 +135,8 @@ export default function App() {
           if (s) openEditor(s);
         });
       }),
+      // Fehler bei Kürzel-/Tray-Aufnahmen (kein invoke-Aufrufer, der sie anzeigt)
+      listen<string>('capture-error', (e) => showToast(String(e.payload))),
     ];
     return () => {
       subs.forEach((p) => p.then((un) => un()));
