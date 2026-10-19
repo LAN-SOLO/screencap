@@ -3,12 +3,15 @@
 Screenshot-Tool mit Ablage: aufnehmen, markieren, wiederfinden.
 
 - **Aufnahme:** Ausschnitt, Fenster oder ganzer Bildschirm — per Button,
-  Tray oder Kürzel (`Cmd+Shift+7/8/9`), mit Verzögerung.
+  Tray oder Kürzel (`Cmd/Ctrl+Shift+7/8/9`), mit Verzögerung. macOS über
+  `screencapture`, Windows über `xcap` + eigenes Auswahl-Overlay; Linux noch
+  ohne Aufnahme.
 - **Editor:** Pfeile, Formen, Text, Stift, Verpixeln (endgültig, keine
-  abnehmbare Ebene), Zuschneiden, Undo/Redo — direkt nach der Aufnahme.
+  abnehmbare Ebene), Zuschneiden, Undo/Redo (auch `Cmd/Ctrl+Z`) — direkt
+  nach der Aufnahme; Objekte bleiben bis zum Speichern editierbar.
 - **Bibliothek:** alles landet durchsuchbar in `~/Pictures/screencap/` —
   mit Namen, Tags, Favoriten und Thumbnails. Ordner frei wählbar, Dateien
-  bleiben normale PNGs/JPGs.
+  bleiben normale PNGs/JPGs (Import: PNG/JPG).
 - Tray, Autostart, DE/EN, signierte In-App-Updates. Alles lokal.
 
 ## Entwicklung
@@ -16,8 +19,11 @@ Screenshot-Tool mit Ablage: aufnehmen, markieren, wiederfinden.
 ```sh
 pnpm install
 pnpm tauri dev              # App im Dev-Modus
-cargo test -p screencap-core   # Core-Tests
+cargo test --workspace      # Core- und App-Tests (vorher einmal pnpm build)
 ```
+
+Version 1.0.0 — Audit-Bericht, Sicherheitsbefunde und manuelle
+Test-Checkliste (macOS/Windows): `AUDIT-1.0.md`.
 
 Release-Build (macOS, mit Updater-Artefakten):
 
