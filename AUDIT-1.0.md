@@ -513,3 +513,43 @@ in drei Wiederholungen grün), 20/20, 4/4, 3/3 Windows-UA.
 - [ ] Windows: dasselbe mit getrenntem Netzlaufwerk (Z:) bzw. abgezogenem USB-Laufwerk
 - [ ] Beide: Bild im Finder/Explorer durch ein anderes gleichen Namens ersetzen,
       zurück zu screencap → neues Thumbnail und neue Maße
+
+## 12. Runde 4 – Regressionen (behaviour, 2026-10-20)
+
+Geprüft: Diff `712f76f..48800f1` mit Blick auf sichtbares Verhalten und
+Datensicherheit (Fokus-Abgleich, `refresh_replaced`, `get_thumb`-Staleness,
+`replace_with_png`, `-m`, `lib_op`/`notify`, Ordnerwechsel), Basis in einem
+temporären Worktree gegengelesen.
+
+**Gefunden und behoben:**
+
+- **Datenverlust bei spät eingehängtem Ablage-Ordner (Regression aus Runde 3).**
+  Startet screencap per Autostart, bevor USB-Laufwerk/Netzfreigabe da ist, lädt
+  es eine leere Bibliothek. Vorher passierte danach nichts bis zum Neustart; seit
+  dem Fokus-Abgleich übernahm der erste Klick ins Fenster (Laufwerk inzwischen
+  eingehängt) alle Dateien als neue „Imports“ mit neuen IDs und überschrieb
+  index.json — Namen, Tags, Favoriten, Aufnahmeart weg. Fix in
+  `sync_library_internal`: ist die Bibliothek im Speicher leer, im Ordner aber eine
+  index.json vorhanden, wird diese geladen statt neu zu importieren. Test
+  `folder_reachable_only_after_start_loads_its_index_instead_of_reimporting`
+  (schlägt ohne Fix fehl; leere Bibliothek übernimmt hineinkopierte Dateien weiter).
+  Die Hilfe-Aussage „Namen, Tags und Favoriten bleiben erhalten, bis der Ordner
+  wieder da ist“ stimmt damit auch für diesen Fall.
+
+**Geprüft, kein Befund:** Editor lädt das Bild nur bei neuer `id` (ein `rev`-Anstieg
+durch den Abgleich verwirft keine ungespeicherten Änderungen); Abgleich ohne
+Änderung schreibt nichts; Thumbnails entstehen immer nach dem Bild (Aufnahme,
+Speichern, Import, Lazy-Erzeugung) → kein falsches „ersetzt“; `-m` nur im
+Vollbild-Zweig; gesperrte JPG: neue PNG hat einen eindeutigen Namen, das
+Zurücknehmen trifft keine fremde Datei; Fokus-Listener feuert nicht bei
+Fokuswechseln innerhalb der Seite.
+
+**Bekannte Restpunkte (nicht geändert):** In einem schreibgeschützten Ordner
+ohne index.json greift nach dem Start kein Fokus-Abgleich mehr (Guard „index.json
+fehlt“) — vorher gab es dort ohnehin nur den Start-Abgleich. Löscht man im
+Finder/Explorer den gesamten Ordnerinhalt inkl. index.json, bleiben die Einträge
+bis zur nächsten Aktion bzw. zum Neustart sichtbar.
+
+**Testlauf:** `cargo test --workspace` 18 Core + 36 App grün; `cargo clippy
+--workspace --all-targets` 0 Warnungen; `pnpm build` fehlerfrei. Keine UI-Änderung
+(UI-Harness nicht betroffen).
