@@ -553,3 +553,55 @@ bis zur nächsten Aktion bzw. zum Neustart sichtbar.
 **Testlauf:** `cargo test --workspace` 18 Core + 36 App grün; `cargo clippy
 --workspace --all-targets` 0 Warnungen; `pnpm build` fehlerfrei. Keine UI-Änderung
 (UI-Harness nicht betroffen).
+
+## 12. Runde 4 – Regressionen (platform)
+
+Linse: Nebenläufigkeit, Plattform, Lebenszyklus — Diff `712f76f..48800f1` plus
+den parallel entstandenen Commit `d62e639` (index.json nachladen).
+
+**Geprüft, kein Befund:**
+
+- Lock-Reihenfolge: nirgends wird `settings` gehalten und dann `lib` genommen
+  (einzige `settings`-Sperre mit Block: `do_capture`, liest nur) → kein Deadlock
+  `io`/`lib`/`settings`. Die Bedingungen `!lib…is_empty() && !index_path().exists()`
+  (Runde 3) und `lib…is_empty() && index_path().exists()` (`d62e639`) halten `lib`
+  *nicht* über den Plattenzugriff: jeder Operand eines `&&` ist ein eigener
+  Temporär-Bereich. Per Probe-Test bestätigt (Sync-Schleife in einem Thread,
+  `settings` gesperrt bis der Sync-Thread darauf wartet, dann `lib.try_lock()`:
+  300/300 frei) — der Test belegt nur Bestehendes und wurde daher nicht übernommen.
+- `list_shots` (Hauptthread) nimmt nur `lib`; alle neuen Operationen
+  (`sync_library`, `get_thumb`, `*_op`) laufen per `spawn_blocking`.
+- Fokus-Abgleich direkt nach einer Aufnahme (`w.set_focus()` in `do_capture`):
+  `capturing` ist dann noch gesetzt (Guard fällt erst am Funktionsende), der
+  Abgleich überspringt → keine Doppel-Übernahme.
+- `get_thumb` gegen `refresh_replaced` (löscht das Thumbnail ohne `io`-Sperre des
+  Lesers): schlimmstenfalls schlägt ein laufendes `get_thumb` für den alten
+  Schlüssel fehl (Galerie ignoriert es), der neue `rev`-Schlüssel lädt neu.
+- Zeitstempel-Vergleich Bild/Thumbnail auf FAT/exFAT (2 s bzw. 10 ms Raster):
+  das Thumbnail entsteht immer nach dem Bild, monotones Runden erhält `≤` →
+  kein Dauer-„ersetzt“. SMB: beide Zeitstempel setzt der Server.
+- Editor: ein Abgleich mit erhöhtem `rev` lädt das Editor-Bild nicht neu (Effekt
+  hängt nur an `shot.id`) — ungespeicherte Änderungen bleiben.
+- Windows-Typcheck (`x86_64-pc-windows-msvc`, `--workspace --tests`) grün.
+- Hilfe DE/EN zu den geänderten Texten (Monitor, Bilder-Ordner, Verzögerung,
+  gesperrte JPG, Abgleich-Zeitpunkte, nicht erreichbarer Ordner) inhaltlich
+  deckungsgleich; Fehlermeldungen in `replace_with_png` zweisprachig.
+
+**Dokumentiert, nicht behoben** (kein auf macOS fehlschlagender Test möglich):
+
+- `replace_with_png`: das Zurücknehmen der neuen PNG bei gesperrter JPG nutzt
+  `remove_file` ohne `retry_io`. Hält unter Windows ein Virenscanner/Indexer die
+  gerade geschriebene PNG kurz offen, bleibt sie liegen und der nächste Abgleich
+  übernimmt sie als „Import“ (die Meldung „gesperrt“ erscheint trotzdem). Echte
+  Windows-Sperre auf dem Mac nicht nachstellbar → Hardware-Check unten.
+- Start-Abgleich (Hauptthread, im `setup`) prüft seit Runde 3 je Eintrag Bild-
+  und Thumbnail-Metadaten (`refresh_replaced`) — bei großen Bibliotheken auf
+  einer Netzfreigabe verlängert das den Start (nur Laufzeit, kein Datenfehler).
+
+**Testlauf:** `cargo test --workspace` 18 Core + 36 App grün; Windows-Typcheck
+grün; `pnpm build` fehlerfrei. Kein Code geändert.
+
+**Nur auf echter Hardware prüfbar (zusätzlich):**
+
+- [ ] Windows: JPG in der Fotoanzeige geöffnet, „Speichern“ → nach der Meldung
+      liegt keine neue PNG im Ordner (auch mit aktivem Defender)
