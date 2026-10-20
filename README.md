@@ -21,7 +21,9 @@ Screenshot-Tool mit Ablage: aufnehmen, markieren, wiederfinden.
   Threads getestet). Eine JPG, die ein anderes Programm geöffnet hält, wird
   beim Überschreiben nicht halb ersetzt, sondern gemeldet.
 - Ablage-Ordner wird beim Start, beim Ordnerwechsel und bei jedem Zurückkehren
-  ins Fenster mit der Platte abgeglichen (von Hand kopierte/gelöschte Dateien).
+  ins Fenster mit der Platte abgeglichen (von Hand kopierte/gelöschte/ersetzte
+  Dateien). Ist der Ordner nicht erreichbar (Laufwerk/Netzfreigabe getrennt) oder
+  fehlt index.json trotz Einträgen, ändert der Abgleich nichts.
 
 ## Entwicklung
 

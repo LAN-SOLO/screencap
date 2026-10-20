@@ -276,3 +276,83 @@ fn unchanged_sync_does_not_write_the_index() {
     assert!(!dir.join("index.json").exists(), "nothing changed → nothing written");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn unreachable_or_recreated_folder_keeps_the_library() {
+    let dir = tmpdir("gone");
+    let st = state_for(&dir);
+    write_png(&dir.join("a.png"), 8, 1);
+    sync_op(&st).unwrap();
+    let id = st.lib.lock().unwrap().shots[0].id;
+    set_tags_op(&st, id, &["kunde".into()]).unwrap();
+    // drive/share gone: the path can't be read (or re-created) at all
+    let blocker = dir.join("not-a-folder");
+    std::fs::write(&blocker, b"x").unwrap();
+    st.settings.lock().unwrap().library_dir = blocker.join("lib").to_string_lossy().to_string();
+    sync_op(&st).unwrap();
+    assert_eq!(st.lib.lock().unwrap().shots.len(), 1, "nothing dropped while unreachable");
+    // folder moved away: lib_dir() re-creates it empty, index.json is missing
+    let moved = tmpdir("moved");
+    st.settings.lock().unwrap().library_dir = dir.to_string_lossy().to_string();
+    std::fs::remove_file(&blocker).unwrap();
+    std::fs::rename(&dir, moved.join("lib")).unwrap();
+    sync_op(&st).unwrap();
+    assert_eq!(st.lib.lock().unwrap().shots.len(), 1, "nothing dropped for an empty stand-in");
+    // folder back in place: the entry keeps its id and tags, no re-import
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::rename(moved.join("lib"), &dir).unwrap();
+    sync_op(&st).unwrap();
+    let lib = assert_index_matches_folder(&dir);
+    assert_eq!(lib.shots.len(), 1);
+    assert_eq!(lib.get(id).unwrap().tags, vec!["kunde".to_string()]);
+    // a file really deleted by hand still disappears
+    std::fs::remove_file(dir.join("a.png")).unwrap();
+    sync_op(&st).unwrap();
+    assert!(load_library(&dir.join("index.json")).unwrap().shots.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&moved);
+}
+
+#[test]
+fn image_replaced_by_hand_is_refreshed_once() {
+    let dir = tmpdir("replaced");
+    let st = state_for(&dir);
+    write_png(&dir.join("a.png"), 8, 1);
+    sync_op(&st).unwrap();
+    let id = st.lib.lock().unwrap().shots[0].id;
+    let thumb = st.thumbs_dir().join(format!("{id}.png"));
+    crate::capture::make_thumb(&dir.join("a.png"), &thumb);
+    assert!(thumb.exists());
+    // replaced in Finder/Explorer under the same name, bigger image
+    write_png(&dir.join("a.png"), 40, 2);
+    sync_op(&st).unwrap();
+    let lib = assert_index_matches_folder(&dir);
+    let s = lib.get(id).unwrap();
+    assert_eq!((s.width, s.rev), (40, 1));
+    assert_eq!(s.size_bytes, std::fs::metadata(dir.join("a.png")).unwrap().len());
+    assert!(!thumb.exists(), "old thumbnail dropped → get_thumb makes a new one");
+    // nothing changed since → no further bump, no write
+    std::fs::remove_file(dir.join("index.json")).unwrap();
+    st.persist().unwrap();
+    let before = std::fs::read(dir.join("index.json")).unwrap();
+    sync_op(&st).unwrap();
+    assert_eq!(st.lib.lock().unwrap().get(id).unwrap().rev, 1);
+    assert_eq!(std::fs::read(dir.join("index.json")).unwrap(), before);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn image_with_future_mtime_is_not_refreshed_on_every_sync() {
+    let dir = tmpdir("future");
+    let st = state_for(&dir);
+    write_png(&dir.join("a.png"), 8, 1);
+    sync_op(&st).unwrap();
+    let id = st.lib.lock().unwrap().shots[0].id;
+    crate::capture::make_thumb(&dir.join("a.png"), &st.thumbs_dir().join(format!("{id}.png")));
+    let future = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+    std::fs::File::options().write(true).open(dir.join("a.png")).unwrap().set_modified(future).unwrap();
+    sync_op(&st).unwrap();
+    sync_op(&st).unwrap();
+    assert_eq!(st.lib.lock().unwrap().get(id).unwrap().rev, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}

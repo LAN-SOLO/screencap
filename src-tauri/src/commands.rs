@@ -475,23 +475,75 @@ pub fn import_op(st: &AppState, paths: &[String]) -> Result<u32, String> {
 /// window focus neither touches the disk nor repeats an error for a
 /// read-only folder.
 pub fn sync_library_internal(st: &AppState) -> Result<(), String> {
-    let on_disk = st.files_on_disk();
+    // folder unreachable (USB drive/network share gone, e.g. right after
+    // wake from sleep): change nothing — dropping every entry now would
+    // re-adopt all files as fresh "imports" later and lose names/tags
+    let Some(on_disk) = st.files_on_disk() else {
+        return Ok(());
+    };
+    // index.json missing although the library has entries: this is not the
+    // folder the library was loaded from (empty mount point, folder moved
+    // away and re-created) — same as above, keep everything
+    if !st.lib.lock().unwrap().shots.is_empty() && !st.index_path().exists() {
+        return Ok(());
+    }
+    let dir = st.lib_dir();
     let (unknown, dropped) = {
         let mut lib = st.lib.lock().unwrap();
         let before = lib.shots.len();
         let unknown = lib.sync(&on_disk);
         (unknown, before != lib.shots.len())
     };
-    if unknown.is_empty() && !dropped {
+    let replaced = refresh_replaced(st, &dir);
+    if unknown.is_empty() && !dropped && !replaced {
         return Ok(());
     }
-    let dir = st.lib_dir();
     for file in unknown {
         let (w, h) = image::image_dimensions(dir.join(&file)).unwrap_or((0, 0));
         let size = std::fs::metadata(dir.join(&file)).map(|m| m.len()).unwrap_or(0);
         st.lib.lock().unwrap().add(&file, ShotKind::Import, w, h, size);
     }
     st.persist()
+}
+
+/// Images replaced by hand under the same name (other size, or newer than
+/// their thumbnail): take over size and dimensions, bump `rev` (the gallery
+/// then asks for a new thumbnail) and drop the old thumbnail. A file with a
+/// modification time in the future is only caught by its size — otherwise it
+/// would count as "replaced" on every sync. Returns whether anything changed.
+fn refresh_replaced(st: &AppState, dir: &std::path::Path) -> bool {
+    let thumbs = st.thumbs_dir();
+    let now = std::time::SystemTime::now();
+    let entries: Vec<(Uuid, String, u64)> = st
+        .lib
+        .lock()
+        .unwrap()
+        .shots
+        .iter()
+        .map(|s| (s.id, s.file.clone(), s.size_bytes))
+        .collect();
+    let mut changed = false;
+    for (id, file, size) in entries {
+        let src = dir.join(&file);
+        let Ok(meta) = std::fs::metadata(&src) else { continue };
+        let thumb = thumbs.join(format!("{id}.png"));
+        let newer_than_thumb = thumb.exists()
+            && meta.modified().map(|m| m <= now).unwrap_or(false)
+            && thumb_is_stale(&src, &thumb);
+        if meta.len() == size && !newer_than_thumb {
+            continue;
+        }
+        let (w, h) = image::image_dimensions(&src).unwrap_or((0, 0));
+        if let Some(s) = st.lib.lock().unwrap().shots.iter_mut().find(|s| s.id == id) {
+            s.size_bytes = meta.len();
+            s.width = w;
+            s.height = h;
+            s.rev = s.rev.wrapping_add(1);
+        }
+        let _ = std::fs::remove_file(&thumb);
+        changed = true;
+    }
+    changed
 }
 
 #[tauri::command]

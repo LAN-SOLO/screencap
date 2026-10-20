@@ -60,7 +60,7 @@ const de: Content = {
         'Drei Arten, oben rechts oder per Kürzel:',
         '• Ausschnitt (Cmd+Shift+7) — Bereich mit der Maus aufziehen',
         '• Fenster (Cmd+Shift+8) — Fenster anklicken, Esc bricht ab',
-        '• Bildschirm (Cmd+Shift+9) — der ganze Monitor',
+        '• Bildschirm (Cmd+Shift+9) — ein ganzer Monitor (macOS: der Hauptbildschirm)',
         'Das Dropdown daneben stellt eine Verzögerung ein (3/5/10 s) — praktisch für Menüs und Tooltips.',
         'Wichtig: Beim allerersten Mal fragt macOS nach der Bildschirmaufnahme-Freigabe — einmal erlauben, fertig.',
         'Unter Windows heißen die Kürzel Strg+Shift+7/8/9; der Ausschnitt wird über ein abgedunkeltes Auswahl-Overlay aufgezogen.',
@@ -90,7 +90,7 @@ const de: Content = {
     {
       title: 'Ablage-Ordner',
       body: [
-        'Alles liegt in ~/Pictures/screencap/ — als ganz normale PNG- oder JPG-Dateien.',
+        'Alles liegt in ~/Pictures/screencap/ (Windows: screencap im Bilder-Ordner) — als ganz normale PNG- oder JPG-Dateien.',
         'Der Ordner ist in den Einstellungen frei wählbar. Dateien, die du selbst hineinlegst, übernimmt screencap in die Bibliothek; gelöschte verschwinden daraus — beim Start und jedes Mal, wenn du ins screencap-Fenster zurückkehrst.',
       ],
     },
@@ -168,7 +168,7 @@ const de: Content = {
       body: [
         'Standard-Ablage ist ~/Pictures/screencap/ (Windows: screencap im Bilder-Ordner) — änderbar in den Einstellungen („Ablage-Ordner“).',
         'Die Aufnahmen sind normale PNG-/JPG-Dateien; der Bibliotheks-Index (index.json) und die Thumbnails (.thumbs/) liegen daneben.',
-        'Der Ordner wird mit der Wirklichkeit abgeglichen — beim Start, nach einem Ordnerwechsel und jedes Mal, wenn das screencap-Fenster wieder nach vorn kommt: PNG-/JPG-Dateien, die du selbst hineinkopierst, tauchen als „Import“ in der Bibliothek auf; von Hand gelöschte Dateien verschwinden aus dem Index. Versteckte Dateien (Name beginnt mit „.“) werden ignoriert. Ersetzt du ein Bild von Hand unter gleichem Namen, wird sein Thumbnail neu erzeugt.',
+        'Der Ordner wird mit der Wirklichkeit abgeglichen — beim Start, nach einem Ordnerwechsel und jedes Mal, wenn das screencap-Fenster wieder nach vorn kommt: PNG-/JPG-Dateien, die du selbst hineinkopierst, tauchen als „Import“ in der Bibliothek auf; von Hand gelöschte Dateien verschwinden aus dem Index. Versteckte Dateien (Name beginnt mit „.“) werden ignoriert. Ersetzt du ein Bild von Hand unter gleichem Namen, übernimmt der Abgleich Maße und Dateigröße und erzeugt das Thumbnail neu. Ist der Ordner gerade nicht erreichbar (USB-Laufwerk oder Netzlaufwerk getrennt, z. B. direkt nach dem Aufwachen) oder fehlt darin index.json, obwohl die Bibliothek Einträge hat, ändert der Abgleich nichts — Namen, Tags und Favoriten bleiben erhalten, bis der Ordner wieder da ist.',
         'Import-Knopf in der Kopfzeile: bestehende Bilder (PNG, JPG) auswählen — sie werden in den Ablage-Ordner kopiert und aufgenommen. Dateien, die keine gültigen Bilder sind, werden übersprungen. Zeichen, die Windows in Dateinamen nicht erlaubt (\\ / : * ? " < > |), werden beim Import zu „-“, reservierte Namen wie „CON“ bekommen ein „_“ davor — so bleibt der Ordner auf Mac und PC lesbar. Umlaute und Leerzeichen bleiben erhalten.',
         'Thumbnails entstehen beim ersten Anzeigen — ein Ordner mit vielen fremden Bildern bremst den Start also nicht.',
         'Ist index.json beschädigt, legt screencap sie als index.corrupt-<Datum>.json beiseite und baut die Bibliothek aus den Bilddateien neu auf (Namen/Tags/Favoriten stecken in der beiseitegelegten Datei).',
@@ -192,7 +192,7 @@ const de: Content = {
       body: [
         '• Sprache — Deutsch / English',
         '• Modus — Dunkel (Standard) oder Hell; die Oberfläche wechselt sofort nach dem Speichern',
-        '• Ablage-Ordner — wohin Aufnahmen gespeichert werden (leer = ~/Pictures/screencap). Nur vollständige Pfade (z. B. D:\\Bilder\\screencap oder ~/Bilder/screencap); ein bloßes „D:“ wird zu „D:\\“. Während einer Aufnahme lässt sich der Ordner nicht wechseln; laufende Importe oder Speichervorgänge werden vor dem Wechsel abgeschlossen.',
+        '• Ablage-Ordner — wohin Aufnahmen gespeichert werden (leer = ~/Pictures/screencap, Windows: screencap im Bilder-Ordner). Nur vollständige Pfade (z. B. D:\\Bilder\\screencap oder ~/Bilder/screencap); ein bloßes „D:“ wird zu „D:\\“. Während einer Aufnahme lässt sich der Ordner nicht wechseln; laufende Importe oder Speichervorgänge werden vor dem Wechsel abgeschlossen.',
         '• Format — PNG (verlustfrei) oder JPG (kleiner)',
         '• Standard-Verzögerung — gilt für Kürzel- und Tray-Aufnahmen und ist auch die Vorauswahl im Verzögerungs-Dropdown (krumme Werte wie 7 s erscheinen dort als eigener Eintrag)',
         '• Aufnahme zusätzlich in die Zwischenablage — direkt einfügbar nach jedem Schuss',
@@ -263,7 +263,7 @@ const en: Content = {
         'Three modes, top right or via shortcut:',
         '• Region (Cmd+Shift+7) — drag an area with the mouse',
         '• Window (Cmd+Shift+8) — click a window, Esc cancels',
-        '• Screen (Cmd+Shift+9) — the whole monitor',
+        '• Screen (Cmd+Shift+9) — one whole monitor (macOS: the main display)',
         'The dropdown next to the buttons sets a delay (3/5/10 s) — handy for menus and tooltips.',
         'Note: on the very first capture, macOS asks for screen-recording permission — allow once, done.',
         'On Windows the shortcuts are Ctrl+Shift+7/8/9; a region is dragged out on a dimmed selection overlay.',
@@ -293,7 +293,7 @@ const en: Content = {
     {
       title: 'The library folder',
       body: [
-        'Everything lives in ~/Pictures/screencap/ — as plain PNG or JPG files.',
+        'Everything lives in ~/Pictures/screencap/ (Windows: screencap in the Pictures folder) — as plain PNG or JPG files.',
         'The folder is configurable in Settings. Files you drop in yourself are adopted into the library; deleted files disappear from it — on launch and whenever you return to the screencap window.',
       ],
     },
@@ -371,7 +371,7 @@ const en: Content = {
       body: [
         'The default location is ~/Pictures/screencap/ (Windows: screencap in the Pictures folder) — changeable in Settings (“Library folder”).',
         'Captures are plain PNG/JPG files; the library index (index.json) and thumbnails (.thumbs/) live next to them.',
-        'The folder is reconciled with reality — on launch, after a folder switch and whenever the screencap window comes to the front again: PNG/JPG files you copy in yourself appear as “Import” in the library; files deleted by hand disappear from the index. Hidden files (name starting with “.”) are ignored. If you replace an image by hand under the same name, its thumbnail is regenerated.',
+        'The folder is reconciled with reality — on launch, after a folder switch and whenever the screencap window comes to the front again: PNG/JPG files you copy in yourself appear as “Import” in the library; files deleted by hand disappear from the index. Hidden files (name starting with “.”) are ignored. If you replace an image by hand under the same name, the sync takes over its dimensions and file size and regenerates the thumbnail. If the folder can’t be reached right now (USB or network drive disconnected, e.g. right after wake from sleep) or its index.json is missing although the library has entries, the sync changes nothing — names, tags and favorites are kept until the folder is back.',
         'Import button in the header: pick existing images (PNG, JPG) — they are copied into the library folder and adopted. Files that are not valid images are skipped. Characters Windows doesn’t allow in file names (\\ / : * ? " < > |) become “-” on import, reserved names like “CON” get a “_” prefix — so the folder stays readable on Mac and PC. Umlauts and spaces are kept.',
         'Thumbnails are created when first shown — a folder with many foreign images doesn’t slow down startup.',
         'If index.json is damaged, screencap moves it aside as index.corrupt-<date>.json and rebuilds the library from the image files (names/tags/favorites remain in the moved file).',
@@ -395,7 +395,7 @@ const en: Content = {
       body: [
         '• Language — Deutsch / English',
         '• Mode — Dark (default) or Light; the UI switches right after saving',
-        '• Library folder — where captures are stored (empty = ~/Pictures/screencap). Full paths only (e.g. D:\\Pictures\\screencap or ~/Pictures/screencap); a bare “D:” becomes “D:\\”. The folder can’t be switched while a capture is running; running imports or saves finish before the switch.',
+        '• Library folder — where captures are stored (empty = ~/Pictures/screencap, Windows: screencap in the Pictures folder). Full paths only (e.g. D:\\Pictures\\screencap or ~/Pictures/screencap); a bare “D:” becomes “D:\\”. The folder can’t be switched while a capture is running; running imports or saves finish before the switch.',
         '• Format — PNG (lossless) or JPG (smaller)',
         '• Default delay — applies to shortcut and tray captures and is preselected in the delay dropdown (odd values like 7 s show up there as their own entry)',
         '• Also copy captures to the clipboard — paste right after every shot',

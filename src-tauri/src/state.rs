@@ -81,20 +81,20 @@ impl AppState {
     }
 
     /// Image files (PNG/JPG, regular files only — no symlinked folders)
-    /// currently in the library folder.
-    pub fn files_on_disk(&self) -> Vec<String> {
+    /// currently in the library folder; `None` if the folder can't be read
+    /// (drive/share not reachable) — not the same as "no images".
+    pub fn files_on_disk(&self) -> Option<Vec<String>> {
         let mut out = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(self.lib_dir()) {
-            for e in entries.flatten() {
-                let is_file = e.file_type().map(|t| t.is_file()).unwrap_or(false);
-                let Some(name) = e.file_name().to_str().map(str::to_string) else {
-                    continue; // non-UTF-8 names can't round-trip through the index
-                };
-                if is_file && screencap_core::is_library_image(&name) {
-                    out.push(name);
-                }
+        let entries = std::fs::read_dir(self.lib_dir()).ok()?;
+        for e in entries.flatten() {
+            let is_file = e.file_type().map(|t| t.is_file()).unwrap_or(false);
+            let Some(name) = e.file_name().to_str().map(str::to_string) else {
+                continue; // non-UTF-8 names can't round-trip through the index
+            };
+            if is_file && screencap_core::is_library_image(&name) {
+                out.push(name);
             }
         }
-        out
+        Some(out)
     }
 }

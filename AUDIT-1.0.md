@@ -440,3 +440,76 @@ wie in Runde 2 (zip 4.6.1 über den Updater; Unmaintained-/Linux-Hinweise inkl.
 **Weiterhin offen:** zip-Advisories (upstream). Ein Bild mit Änderungsdatum in der
 Zukunft bekommt bei jeder ersten Anzeige pro Sitzung ein neues Thumbnail (nur
 Rechenzeit).
+
+## 11. Runde 3 – Verifikation (unabhängige Prüfung, 2026-10-20)
+
+Geprüft: Diff `712f76f..3109812` (Fokus-Abgleich, `-m`, gesperrte JPG,
+`rev`/Thumbnail, `*_op`-Umbau), alle Tests selbst erneut ausgeführt, 10 weitere
+Hilfe-Aussagen gegen den Code gelesen.
+
+**Widerlegt / neu gefunden und behoben:**
+
+1. **Datenverlust durch den Fokus-Abgleich bei nicht erreichbarem Ordner
+   (Regression aus Runde 3).** `files_on_disk` lieferte bei einem nicht lesbaren
+   Ordner eine leere Liste; der Abgleich warf daraufhin alle Einträge aus der
+   Bibliothek. Vorher lief der Abgleich nur beim Start/Ordnerwechsel, jetzt bei
+   jedem Fokus — typischer Fall: Laptop wacht auf, Netzfreigabe/USB-Laufwerk ist
+   noch nicht wieder da, Fenster bekommt Fokus. Beim nächsten Fokus (Laufwerk
+   zurück) wären alle Dateien als neue „Imports“ mit neuen IDs übernommen und
+   index.json überschrieben worden — Namen, Tags, Favoriten und Aufnahmeart weg.
+   Gleiches, wenn der Ordner verschoben wurde und `lib_dir()` ihn leer neu anlegt.
+   Fix: `files_on_disk` gibt `None` zurück, wenn der Ordner nicht lesbar ist →
+   Abgleich ändert nichts; fehlt index.json, obwohl die Bibliothek Einträge hat
+   (leerer Einhängepunkt, neu angelegter Ordner), ebenfalls nichts. Test
+   `unreachable_or_recreated_folder_keeps_the_library` (echter Ordner: nicht
+   anlegbarer Pfad, verschobener Ordner, Rückkehr mit erhaltenen Tags, echtes
+   Löschen wirkt weiter). Mutationsprobe: ohne Fix schlägt der Test fehl.
+2. **Hilfe-Aussage „von Hand ersetztes Bild → Thumbnail wird neu erzeugt“ stimmte
+   nur nach Neustart.** Der Abgleich änderte bestehende Einträge nicht; der
+   Cache-Schlüssel der Galerie (`id|rev|file|Maße|Größe`) blieb gleich, `get_thumb`
+   wurde in der Sitzung also nie erneut aufgerufen; Maße/Größe im Index blieben
+   veraltet. Fix: Der Abgleich übernimmt bei geänderter Dateigröße oder einem Bild,
+   das neuer ist als sein Thumbnail, Maße und Größe, erhöht `rev` und löscht das
+   alte Thumbnail (einmalig — danach keine weitere Änderung). Bilder mit
+   Änderungsdatum in der Zukunft zählen nur über die Größe, sonst würden sie bei
+   jedem Fokus erneut „ersetzt“. Tests `image_replaced_by_hand_is_refreshed_once`,
+   `image_with_future_mtime_is_not_refreshed_on_every_sync`.
+3. **Hilfe-Restfehler:** Tutorial sagte noch „Bildschirm — der ganze Monitor“ und
+   nannte nur `~/Pictures/screencap/`; Einstellungen „leer = ~/Pictures/screencap“
+   ohne Windows-Hinweis. DE+EN angeglichen. Hilfe DE+EN beschreibt zusätzlich
+   Ersetzen und nicht erreichbaren Ordner; README ebenso.
+
+**Bestätigt (gelesen, kein Befund):** `-m` nur im Vollbild-Zweig; `replace_with_png`
+nimmt die neue PNG bei gesperrter JPG zurück; `rev` serde-default; Fokus-Listener
+nur im Hauptfenster (Overlay rendert `RegionPicker`); Lock-Reihenfolge `io` vor
+`lib` in allen `*_op`; `sync_op` prüft `capturing` unter dem Lock;
+Thumbnails liegen im Ablage-Ordner (gleiches Dateisystem → Zeitstempel vergleichbar).
+
+**10 Stichproben aus der Hilfe (alle zutreffend):** Löschen endgültig mit Nachfrage
+(`remove_file`, `askConfirm` in Galerie und Editor); „D:“ → „D:\“
+(`expand_library_dir`); nicht anlegbarer Ordner wird abgelehnt
+(`create_dir_all` vor dem Umschalten); kein Ordnerwechsel während Aufnahme;
+Filter „Bearbeitet“ = Kopien (`ShotKind::Edit` nur im Kopie-Zweig); fehlgeschlagene
+Kürzel-/Tray-Aufnahme holt das Fenster nach vorn und meldet; Text: Enter
+übernimmt, Shift+Enter Umbruch, Esc bricht ab; Fensterschatten-Option unter
+Windows ausgeblendet; Zwischenablage-Fehler wird gemeldet, Aufnahme bleibt; Suche
+über Name, Dateiname, Tags; Schließen versteckt nur (`prevent_close`).
+
+**Testlauf (selbst ausgeführt):** `cargo test --workspace` 18 Core + 35 App grün;
+`cargo clippy --workspace --all-targets` 0 Warnungen auf macOS und für
+`x86_64-pc-windows-msvc` (nur Typcheck, nichts gelinkt/ausgeführt); `pnpm build`
+fehlerfrei; `pnpm audit` ohne Befund; `cargo audit` unverändert (nur upstream:
+zip 4.6.1 über den Updater, Unmaintained-/Linux-Hinweise). UI-Harness (headless
+Chromium, Mock): neu 6/6 DE+EN (Ersetzen → neues Thumbnail, Abgleich ohne
+Änderung lädt nichts nach, Handbuch nennt beides); Runde-3-Journeys 24/24 (ein
+Lauf von vier zeigte J10b einmal rot — Zeitfenster nach `reload`, Harness-Takt,
+in drei Wiederholungen grün), 20/20, 4/4, 3/3 Windows-UA.
+
+**Nur auf echter Hardware prüfbar (zusätzlich):**
+
+- [ ] macOS: Ablage-Ordner auf USB-Stick/Netzfreigabe, Tags setzen, Laufwerk
+      auswerfen, ins Fenster klicken → Karten bleiben; Laufwerk wieder einhängen,
+      ins Fenster klicken → gleiche Karten mit Tags, keine „Imports“
+- [ ] Windows: dasselbe mit getrenntem Netzlaufwerk (Z:) bzw. abgezogenem USB-Laufwerk
+- [ ] Beide: Bild im Finder/Explorer durch ein anderes gleichen Namens ersetzen,
+      zurück zu screencap → neues Thumbnail und neue Maße
