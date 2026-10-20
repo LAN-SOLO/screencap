@@ -487,6 +487,14 @@ pub fn sync_library_internal(st: &AppState) -> Result<(), String> {
     if !st.lib.lock().unwrap().shots.is_empty() && !st.index_path().exists() {
         return Ok(());
     }
+    // library empty in memory although the folder has an index.json: the
+    // folder wasn't reachable when the library was loaded (drive/share
+    // mounted after an autostart) — load that index now instead of adopting
+    // every file as a fresh "import" and overwriting it (names/tags lost)
+    if st.lib.lock().unwrap().shots.is_empty() && st.index_path().exists() {
+        let lib = screencap_core::load_library_or_recover(&st.index_path());
+        *st.lib.lock().unwrap() = lib;
+    }
     let dir = st.lib_dir();
     let (unknown, dropped) = {
         let mut lib = st.lib.lock().unwrap();

@@ -356,3 +356,38 @@ fn image_with_future_mtime_is_not_refreshed_on_every_sync() {
     assert_eq!(st.lib.lock().unwrap().get(id).unwrap().rev, 0);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn folder_reachable_only_after_start_loads_its_index_instead_of_reimporting() {
+    // autostart at login: the USB drive / network share isn't there yet, the
+    // library starts empty. Once it is mounted, the first focus sync must load
+    // the folder's index.json — not adopt every file as a fresh "import" and
+    // overwrite index.json (ids, names, tags, favorites gone).
+    let dir = tmpdir("late-mount");
+    let st = state_for(&dir);
+    write_png(&dir.join("a.png"), 8, 1);
+    sync_op(&st).unwrap();
+    let id = st.lib.lock().unwrap().shots[0].id;
+    rename_op(&st, id, "Kundenrechnung").unwrap();
+    set_tags_op(&st, id, &["kunde".into()]).unwrap();
+    // restart with the drive not mounted yet → empty library in memory
+    let st = state_for(&dir);
+    assert!(st.lib.lock().unwrap().shots.is_empty());
+    // drive mounted, window gets focus
+    sync_op(&st).unwrap();
+    let lib = assert_index_matches_folder(&dir);
+    assert_eq!(lib.shots.len(), 1);
+    let s = lib.get(id).expect("same id, not re-imported");
+    assert_eq!(s.name, "Kundenrechnung");
+    assert_eq!(s.tags, vec!["kunde".to_string()]);
+    assert_eq!(st.lib.lock().unwrap().get(id).unwrap().tags, vec!["kunde".to_string()]);
+    // a genuinely empty library still adopts files dropped into the folder
+    let fresh = tmpdir("fresh");
+    let st2 = state_for(&fresh);
+    sync_op(&st2).unwrap();
+    write_png(&fresh.join("b.png"), 8, 2);
+    sync_op(&st2).unwrap();
+    assert_eq!(assert_index_matches_folder(&fresh).shots.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&fresh);
+}
