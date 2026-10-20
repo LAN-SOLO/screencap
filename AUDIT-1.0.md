@@ -554,7 +554,7 @@ bis zur nächsten Aktion bzw. zum Neustart sichtbar.
 --workspace --all-targets` 0 Warnungen; `pnpm build` fehlerfrei. Keine UI-Änderung
 (UI-Harness nicht betroffen).
 
-## 12. Runde 4 – Regressionen (platform)
+## 13. Runde 4 – Regressionen (platform, 2026-10-20)
 
 Linse: Nebenläufigkeit, Plattform, Lebenszyklus — Diff `712f76f..48800f1` plus
 den parallel entstandenen Commit `d62e639` (index.json nachladen).
